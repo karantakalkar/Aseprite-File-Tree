@@ -1,0 +1,20 @@
+{
+  "name": "aseprite-file-tree",
+  "displayName": "Aseprite File Tree",
+  "description": "Browse a folder tree and open art files from a floating Aseprite dialog.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Karan Takalkar"
+  },
+  "license": "MIT",
+  "categories": [
+    "Scripts"
+  ],
+  "contributes": {
+    "scripts": [
+      {
+        "path": "./folder_browser.lua"
+      }
+    ]
+  }
+}
