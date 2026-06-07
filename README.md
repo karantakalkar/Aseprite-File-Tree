@@ -1,9 +1,8 @@
+# Aseprite File Tree
 
 | Light Theme | Dark Theme |
 |:-:|:-:|
-| ![Light](Sample%20Light.png) | ![Dark](Sample%20Black.png) |
-
-# Aseprite File Tree
+| ![Light](Images/Sample%20Light.png) | ![Dark](Images/Sample%20Black.png) |
 
 A lightweight Aseprite extension that opens a floating file tree browser. It shows nested folders and common art files in a tree view, then opens a clicked file in Aseprite. The browser respects the active Aseprite theme so it blends in with both light and dark skins.
 

@@ -87,6 +87,26 @@ local function remove_from_list(list, path)
   end
 end
 
+local function settings_path()
+  return app.fs.joinPath(app.fs.userConfigPath, "aseprite-file-tree-settings.lua")
+end
+
+local function quoted(value)
+  return string.format("%q", value or "")
+end
+
+local function write_setting_line(file, key, value)
+  file:write("  ", key, " = ", quoted(value), ",\n")
+end
+
+local function write_favorites(file)
+  file:write("  favorites = {\n")
+  for _, path in ipairs(M.favorites) do
+    file:write("    ", quoted(path), ",\n")
+  end
+  file:write("  }\n")
+end
+
 function M.has(s)
   return s ~= nil and s ~= ""
 end
@@ -115,6 +135,30 @@ function M.save_prefs()
   if M.dialog then p.bounds = M.dialog.bounds end
 end
 
+function M.save_browser_settings()
+  local p = M.plugin.preferences
+  p.root_path = M.root_path
+  p.favorites = M.favorites
+  p.pinned_root = M.pinned_root
+
+  -- Persist key browser settings even when Aseprite skips plugin preference flushing.
+  local file = io.open(settings_path(), "w")
+  if file then
+    file:write("return {\n")
+    write_setting_line(file, "root_path", M.root_path)
+    write_setting_line(file, "pinned_root", M.pinned_root)
+    write_favorites(file)
+    file:write("}\n")
+    file:close()
+  end
+end
+
+function M.load_browser_settings()
+  local chunk = loadfile(settings_path())
+  if not chunk then return nil end
+  return chunk()
+end
+
 -- Modify a dialog widget while preserving window bounds.
 function M.modify(opts)
   if M.dialog then
@@ -138,14 +182,18 @@ function M.expanded_set()
 end
 
 function M.init_root()
-  if M.has(M.plugin.preferences.root_path) then
+  local settings = M.load_browser_settings() or {}
+
+  if M.has(settings.root_path) then
+    M.root_path = settings.root_path
+  elseif M.has(M.plugin.preferences.root_path) then
     M.root_path = M.plugin.preferences.root_path
   else
     M.root_path = app.fs.userDocsPath
   end
 
-  M.favorites = clean_list(M.plugin.preferences.favorites)
-  M.pinned_root = M.plugin.preferences.pinned_root or ""
+  M.favorites = clean_list(settings.favorites or M.plugin.preferences.favorites)
+  M.pinned_root = settings.pinned_root or M.plugin.preferences.pinned_root or ""
   M.filter_text = M.plugin.preferences.filter_text or ""
   M.pending_filter_text = M.filter_text
   M.filter_mode = M.plugin.preferences.filter_mode or "All"
@@ -192,7 +240,7 @@ function M.toggle_favorite(path)
   else
     table.insert(M.favorites, 1, path)
   end
-  M.save_prefs()
+  M.save_browser_settings()
 end
 
 local function mode_matches(item)
@@ -435,11 +483,13 @@ end
 
 function M.clear_root()
   M.pinned_root = ""
+  M.save_browser_settings()
   M.refresh()
 end
 
 function M.set_pinned_root(path)
   M.pinned_root = path or ""
+  M.save_browser_settings()
   M.refresh()
 end
 
@@ -462,6 +512,7 @@ function M.nav_to(path, push)
   M.hovered_idx = nil
   M.selected = nil
   M.context_menu = nil
+  M.save_browser_settings()
   M.refresh()
 end
 
