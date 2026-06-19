@@ -21,6 +21,10 @@ M.selected = nil
 M.hovered_idx = nil
 M.context_menu = nil
 M.context_hover = nil
+M.preview_enabled = false
+M.preview_path = nil
+M.preview_image = nil
+M.preview_status = "Preview off."
 
 M.sb_dragging = false
 M.sb_drag_y = 0
@@ -44,6 +48,9 @@ M.DEF_W = 260
 M.DEF_H = 300
 M.MENU_W = 148
 M.MENU_ROW_H = 16
+M.PREVIEW_W = 150
+M.PREVIEW_MIN_TREE_W = 130
+M.PREVIEW_GAP = 1
 
 M.search_matches = {}
 M.search_ancestors = {}
@@ -87,6 +94,69 @@ local function remove_from_list(list, path)
   end
 end
 
+local function trimmed(value)
+  return (value or ""):match("^%s*(.-)%s*$")
+end
+
+local function file_exists(path)
+  return app.fs.isFile(path) or app.fs.isDirectory(path)
+end
+
+local function append_aseprite_extension(name)
+  if M.has(app.fs.fileExtension(name)) then return name end
+  return name .. ".aseprite"
+end
+
+local function row_is_folder(row)
+  return row.is_folder or row.is_shortcut
+end
+
+local function rename_file_name(row, name)
+  if row_is_folder(row) then return name end
+  if M.has(app.fs.fileExtension(name)) then return name end
+  local ext = app.fs.fileExtension(row.path)
+  if M.has(ext) then return name .. "." .. ext end
+  return name
+end
+
+local function replace_path_prefix(path, old_path, new_path)
+  if not M.has(path) then return path end
+  local clean_path = app.fs.normalizePath(path)
+  local clean_old = app.fs.normalizePath(old_path)
+  local clean_new = app.fs.normalizePath(new_path)
+  local prefix = clean_old .. app.fs.pathSeparator
+
+  if clean_path == clean_old then return clean_new end
+  if clean_path:sub(1, #prefix) == prefix then return clean_new .. clean_path:sub(#clean_old + 1) end
+  return path
+end
+
+local function path_is_same_or_child(path, parent)
+  if not M.has(path) then return false end
+  local clean_path = app.fs.normalizePath(path)
+  local clean_parent = app.fs.normalizePath(parent)
+  local prefix = clean_parent .. app.fs.pathSeparator
+  return clean_path == clean_parent or clean_path:sub(1, #prefix) == prefix
+end
+
+local function update_path_list(list, old_path, new_path)
+  for i, path in ipairs(list) do
+    list[i] = replace_path_prefix(path, old_path, new_path)
+  end
+end
+
+local function reset_cached_tree()
+  M.file_cache = {}
+  M.search_index = {}
+  M.search_index_root = nil
+end
+
+local function remove_path_prefixes(list, old_path)
+  for i = #list, 1, -1 do
+    if path_is_same_or_child(list[i], old_path) then table.remove(list, i) end
+  end
+end
+
 local function settings_path()
   return app.fs.joinPath(app.fs.userConfigPath, "aseprite-file-tree-settings.lua")
 end
@@ -121,6 +191,55 @@ function M.is_supported(path)
   return supported[lo(app.fs.fileExtension(path))] == true
 end
 
+function M.load_preview(path)
+  M.preview_path = path
+  M.preview_image = nil
+  M.preview_status = "Loading preview..."
+
+  local ok, image = pcall(function() return Image{ fromFile = path } end)
+  if ok and image ~= nil then
+    M.preview_image = image
+    M.preview_status = ""
+    return
+  end
+
+  local sprite = nil
+  ok, image = pcall(function()
+    sprite = app.open(path)
+    if sprite == nil then return nil end
+    return Image(sprite)
+  end)
+
+  if sprite ~= nil then pcall(function() sprite:close() end) end
+  if ok and image ~= nil then
+    M.preview_image = image
+    M.preview_status = ""
+    return
+  end
+
+  M.preview_path = nil
+  M.preview_status = "Could not preview this file."
+end
+
+function M.preview_row(row)
+  if not M.preview_enabled then return end
+  if row == nil or row.is_folder or row.is_shortcut then
+    M.clear_preview("Select a file to preview.")
+    return
+  end
+  M.load_preview(row.path)
+end
+
+function M.toggle_preview()
+  M.preview_enabled = not M.preview_enabled
+  if not M.preview_enabled then M.clear_preview("Preview off.") end
+  if M.preview_enabled and M.selected ~= nil and app.fs.isFile(M.selected) then M.load_preview(M.selected) end
+  M.clamp_scroll()
+  M.save_prefs()
+  M.update_preview_button()
+  if M.dialog then M.dialog:repaint() end
+end
+
 function M.save_prefs()
   local p = M.plugin.preferences
   p.root_path = M.root_path
@@ -132,6 +251,7 @@ function M.save_prefs()
   p.pinned_root = M.pinned_root
   p.filter_text = M.filter_text
   p.filter_mode = M.filter_mode
+  p.preview_enabled = M.preview_enabled
   if M.dialog then p.bounds = M.dialog.bounds end
 end
 
@@ -197,11 +317,38 @@ function M.init_root()
   M.filter_text = M.plugin.preferences.filter_text or ""
   M.pending_filter_text = M.filter_text
   M.filter_mode = M.plugin.preferences.filter_mode or "All"
+  M.preview_enabled = M.plugin.preferences.preview_enabled == true
+  M.preview_status = M.preview_enabled and "Select a file to preview." or "Preview off."
 end
 
 -- Enable/disable Root button based on whether a pinned root is set.
 function M.update_root_button()
   M.modify{ id = "b_root", enabled = M.has(M.pinned_root) }
+end
+
+function M.update_preview_button()
+  local text = M.preview_enabled and "Preview: On" or "Preview: Off"
+  M.modify{ id = "b_preview", text = text }
+end
+
+function M.tree_w()
+  if not M.preview_enabled then return M.canvas_w end
+  if M.canvas_w < M.PREVIEW_MIN_TREE_W + M.PREVIEW_W then return M.canvas_w end
+  return M.canvas_w - M.PREVIEW_W - M.PREVIEW_GAP
+end
+
+function M.preview_x()
+  return M.tree_w() + M.PREVIEW_GAP
+end
+
+function M.has_preview_pane()
+  return M.preview_enabled and M.tree_w() < M.canvas_w
+end
+
+function M.clear_preview(status)
+  M.preview_path = nil
+  M.preview_image = nil
+  M.preview_status = status or "Select a file to preview."
 end
 
 local function sort_entries(a, b)
@@ -439,8 +586,8 @@ function M.view_h()
 end
 
 function M.view_w()
-  if M.needs_v_scroll() then return M.canvas_w - M.SB_W end
-  return M.canvas_w
+  if M.needs_v_scroll() then return M.tree_w() - M.SB_W end
+  return M.tree_w()
 end
 
 function M.needs_v_scroll()
@@ -448,7 +595,7 @@ function M.needs_v_scroll()
 end
 
 function M.needs_h_scroll()
-  return M.content_w > M.canvas_w
+  return M.content_w > M.tree_w()
 end
 
 function M.max_v_scroll()
@@ -473,6 +620,7 @@ function M.refresh()
   M.clamp_scroll()
   M.save_prefs()
   M.update_root_button()
+  M.update_preview_button()
   if M.dialog then
     M.modify{ id = "root_entry", text = M.root_path }
     M.modify{ id = "filter_entry", text = M.filter_text }
@@ -494,10 +642,243 @@ function M.set_pinned_root(path)
 end
 
 function M.rescan()
-  M.file_cache = {}
-  M.search_index = {}
-  M.search_index_root = nil
+  reset_cached_tree()
   M.refresh()
+end
+
+function M.create_aseprite_file(folder_path, name)
+  local base_name = app.fs.fileName(trimmed(name))
+  if not M.has(base_name) then
+    app.alert("Enter a file name.")
+    return false
+  end
+
+  local clean_name = append_aseprite_extension(base_name)
+  local target = app.fs.joinPath(folder_path, clean_name)
+  if file_exists(target) then
+    app.alert("A file or folder with that name already exists.")
+    return false
+  end
+
+  local sprite = nil
+  local ok, err = pcall(function()
+    sprite = Sprite(16, 16)
+    sprite:saveAs(target)
+  end)
+
+  if sprite ~= nil then pcall(function() sprite:close() end) end
+  if not ok then
+    app.alert("Could not create file: " .. tostring(err))
+    return false
+  end
+
+  local exp = M.expanded_set()
+  exp[folder_path] = true
+  M.selected = target
+  if M.preview_enabled then M.load_preview(target) end
+  reset_cached_tree()
+  M.refresh()
+  return true
+end
+
+function M.create_folder(folder_path, name)
+  local clean_name = app.fs.fileName(trimmed(name))
+  if not M.has(clean_name) then
+    app.alert("Enter a folder name.")
+    return false
+  end
+
+  local target = app.fs.joinPath(folder_path, clean_name)
+  if file_exists(target) then
+    app.alert("A file or folder with that name already exists.")
+    return false
+  end
+
+  local ok, err = pcall(function() app.fs.makeDirectory(target) end)
+  if not ok then
+    app.alert("Could not create folder: " .. tostring(err))
+    return false
+  end
+
+  local exp = M.expanded_set()
+  exp[folder_path] = true
+  M.selected = target
+  M.clear_preview("Select a file to preview.")
+  reset_cached_tree()
+  M.refresh()
+  return true
+end
+
+function M.show_new_file_dialog(folder_path)
+  local dialog = nil
+  dialog = Dialog{ title = "New .aseprite File" }
+  dialog:entry{ id = "name", label = "Name", text = "New File.aseprite", focus = true }
+  dialog:button{
+    id = "create",
+    text = "Create",
+    onclick = function()
+      if M.create_aseprite_file(folder_path, dialog.data.name) then dialog:close() end
+    end
+  }
+  dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
+  dialog:show{ wait = false }
+end
+
+function M.show_new_folder_dialog(folder_path)
+  local dialog = nil
+  dialog = Dialog{ title = "New Folder" }
+  dialog:entry{ id = "name", label = "Name", text = "New Folder", focus = true }
+  dialog:button{
+    id = "create",
+    text = "Create",
+    onclick = function()
+      if M.create_folder(folder_path, dialog.data.name) then dialog:close() end
+    end
+  }
+  dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
+  dialog:show{ wait = false }
+end
+
+function M.update_renamed_paths(old_path, new_path, is_folder)
+  M.selected = replace_path_prefix(M.selected, old_path, new_path)
+  M.preview_path = replace_path_prefix(M.preview_path, old_path, new_path)
+
+  if is_folder then
+    M.root_path = replace_path_prefix(M.root_path, old_path, new_path)
+    M.pinned_root = replace_path_prefix(M.pinned_root, old_path, new_path)
+    update_path_list(M.history, old_path, new_path)
+    update_path_list(M.favorites, old_path, new_path)
+
+    local exp = M.expanded_set()
+    local next_exp = {}
+    for path, value in pairs(exp) do
+      next_exp[replace_path_prefix(path, old_path, new_path)] = value
+    end
+    M.plugin.preferences.expanded = next_exp
+  end
+end
+
+function M.clear_deleted_paths(path)
+  if path_is_same_or_child(M.selected, path) then M.selected = nil end
+  if path_is_same_or_child(M.preview_path, path) then M.clear_preview("Select a file to preview.") end
+
+  if path_is_same_or_child(M.root_path, path) then M.root_path = app.fs.filePath(path) end
+  if path_is_same_or_child(M.pinned_root, path) then M.pinned_root = "" end
+  remove_path_prefixes(M.history, path)
+  remove_path_prefixes(M.favorites, path)
+
+  local exp = M.expanded_set()
+  local next_exp = {}
+  for expanded_path, value in pairs(exp) do
+    if not path_is_same_or_child(expanded_path, path) then next_exp[expanded_path] = value end
+  end
+  M.plugin.preferences.expanded = next_exp
+end
+
+function M.delete_folder(path)
+  for _, name in ipairs(app.fs.listFiles(path)) do
+    local child = app.fs.joinPath(path, name)
+    if app.fs.isDirectory(child) then
+      local ok, err = M.delete_folder(child)
+      if not ok then return false, err end
+    else
+      local ok, err = os.remove(child)
+      if not ok then return false, err end
+    end
+  end
+
+  if app.fs.removeDirectory then
+    local ok, err = pcall(function() return app.fs.removeDirectory(path) end)
+    if ok and err ~= false then return true end
+    if ok then return false, "removeDirectory failed" end
+    return false, err
+  end
+  return os.remove(path)
+end
+
+function M.delete_path(row)
+  local path = row.path
+  local ok = nil
+  local err = nil
+
+  if row_is_folder(row) then
+    ok, err = M.delete_folder(path)
+  else
+    ok, err = os.remove(path)
+  end
+
+  if not ok then
+    app.alert("Could not delete: " .. tostring(err))
+    return false
+  end
+
+  M.clear_deleted_paths(path)
+  reset_cached_tree()
+  M.save_browser_settings()
+  M.refresh()
+  return true
+end
+
+function M.show_delete_dialog(row)
+  local dialog = nil
+  local item_type = row_is_folder(row) and "folder and all contents" or "file"
+  dialog = Dialog{ title = "Delete" }
+  dialog:label{ id = "message", label = "", text = "Delete this " .. item_type .. "?" }
+  dialog:label{ id = "name", label = "", text = M.short_path(row.path) }
+  dialog:button{
+    id = "delete",
+    text = "Delete",
+    onclick = function()
+      if M.delete_path(row) then dialog:close() end
+    end
+  }
+  dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
+  dialog:show{ wait = false }
+end
+
+function M.rename_path(row, name)
+  local clean_name = rename_file_name(row, app.fs.fileName(trimmed(name)))
+  if not M.has(clean_name) then
+    app.alert("Enter a name.")
+    return false
+  end
+
+  local old_path = row.path
+  local new_path = app.fs.joinPath(app.fs.filePath(old_path), clean_name)
+  if app.fs.normalizePath(old_path) == app.fs.normalizePath(new_path) then return true end
+
+  if file_exists(new_path) then
+    app.alert("A file or folder with that name already exists.")
+    return false
+  end
+
+  local ok, err = os.rename(old_path, new_path)
+  if not ok then
+    app.alert("Could not rename: " .. tostring(err))
+    return false
+  end
+
+  M.update_renamed_paths(old_path, new_path, row_is_folder(row))
+  if M.preview_enabled and M.selected == new_path and app.fs.isFile(new_path) then M.load_preview(new_path) end
+  reset_cached_tree()
+  M.save_browser_settings()
+  M.refresh()
+  return true
+end
+
+function M.show_rename_dialog(row)
+  local dialog = nil
+  dialog = Dialog{ title = "Rename" }
+  dialog:entry{ id = "name", label = "Name", text = M.row_name(row.path), focus = true }
+  dialog:button{
+    id = "rename",
+    text = "Rename",
+    onclick = function()
+      if M.rename_path(row, dialog.data.name) then dialog:close() end
+    end
+  }
+  dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
+  dialog:show{ wait = false }
 end
 
 function M.nav_to(path, push)
@@ -539,7 +920,21 @@ function M.nav_root_selected()
 end
 
 function M.open_context_menu(row, x, y)
-  if row == nil or row.is_section or row.is_divider then
+  if row == nil then
+    M.context_menu = {
+      x = x,
+      y = y,
+      row = { path = M.root_path, is_folder = true, is_empty_space = true },
+      items = {
+        { label = "New .aseprite File", action = "new_aseprite" },
+        { label = "New Folder", action = "new_folder" }
+      }
+    }
+    M.dialog:repaint()
+    return
+  end
+
+  if row.is_section or row.is_divider then
     M.context_menu = nil
     return
   end
@@ -560,13 +955,20 @@ function M.open_context_menu(row, x, y)
 
   table.insert(items, { label = "Open", action = "open" })
 
-  if row.is_folder or row.is_shortcut then
+  if row_is_folder(row) then
+    table.insert(items, { label = "New .aseprite File", action = "new_aseprite" })
+    table.insert(items, { label = "New Folder", action = "new_folder" })
     table.insert(items, { label = "Set Root", action = "set_root" })
     local favorite_text = M.is_favorite(row.path) and "Remove Favorite" or "Add Favorite"
     table.insert(items, { label = favorite_text, action = "favorite" })
   end
 
-  -- Always available for files and folders.
+  if row_is_folder(row) or not row.is_shortcut then
+    table.insert(items, { label = "Rename", action = "rename" })
+    table.insert(items, { label = "Delete", action = "delete" })
+  end
+
+  -- Always available for files, folders, and favorites.
   table.insert(items, { label = "Copy Path", action = "copy_path" })
   table.insert(items, { label = "Reveal in Explorer", action = "reveal" })
 
@@ -604,6 +1006,14 @@ function M.run_context_action(item)
 
   if item.action == "clear_root" then
     M.clear_root()
+  elseif item.action == "new_aseprite" then
+    M.show_new_file_dialog(row.path)
+  elseif item.action == "new_folder" then
+    M.show_new_folder_dialog(row.path)
+  elseif item.action == "rename" then
+    M.show_rename_dialog(row)
+  elseif item.action == "delete" then
+    M.show_delete_dialog(row)
   elseif item.action == "set_root" then
     M.set_pinned_root(row.path)
   elseif item.action == "open" then

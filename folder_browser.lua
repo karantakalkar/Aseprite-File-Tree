@@ -31,11 +31,15 @@ local function is_right_click(ev)
 end
 
 local function in_v_scrollbar(x)
-  return core.needs_v_scroll() and x >= core.canvas_w - core.SB_W
+  return core.needs_v_scroll() and x >= core.tree_w() - core.SB_W and x < core.tree_w()
 end
 
 local function in_h_scrollbar(y)
   return core.needs_h_scroll() and y >= core.canvas_h - core.SB_H
+end
+
+local function in_preview_pane(x)
+  return core.has_preview_pane() and x >= core.tree_w()
 end
 
 local function on_v_sb_click(x, y)
@@ -77,6 +81,7 @@ end
 local function select_row(row)
   if row == nil or row.is_section or row.is_divider or row.is_shortcut then return end
   core.selected = row.path
+  core.preview_row(row)
   core.save_prefs()
 end
 
@@ -86,11 +91,21 @@ local function on_mousedown(ev)
   local menu_item = core.context_item_at(ev.x, ev.y)
   if core.run_context_action(menu_item) then return end
 
+  if in_preview_pane(ev.x) then
+    core.close_context_menu()
+    core.dialog:repaint()
+    return
+  end
+
   if on_v_sb_click(ev.x, ev.y) then return end
   if on_h_sb_click(ev.x, ev.y) then return end
 
   local row = core.row_at_y(ev.y)
   if row == nil or row.is_divider then
+    if row == nil and is_right_click(ev) then
+      core.open_context_menu(nil, ev.x, ev.y)
+      return
+    end
     core.close_context_menu()
     core.dialog:repaint()
     return
@@ -120,6 +135,7 @@ end
 local function on_dblclick(ev)
   -- Ignore clicks outside canvas bounds.
   if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then return end
+  if in_preview_pane(ev.x) then return end
   if in_v_scrollbar(ev.x) or in_h_scrollbar(ev.y) then return end
   local row = core.row_at_y(ev.y)
   if row == nil or row.is_section or row.is_root_info or row.is_divider then return end
@@ -140,7 +156,7 @@ end
 
 local function on_mousemove(ev)
   -- Guard: if cursor is outside canvas bounds, treat as mouse leave.
-  if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then
+  if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h or in_preview_pane(ev.x) then
     if core.hovered_idx ~= nil then
       core.hovered_idx = nil
       core.dialog:repaint()
@@ -213,6 +229,7 @@ local function on_mouseleave()
 end
 
 local function on_wheel(ev)
+  if in_preview_pane(ev.x) then return end
   if ev.shiftKey then
     core.h_scroll = core.h_scroll + ev.deltaY * core.ROW_H * core.SCROLL_ROWS
   else
@@ -298,6 +315,7 @@ local function create_dialog()
   core.dialog:button{ id = "b_sprite", text = "Sprite", onclick = core.nav_sprite }
   core.dialog:button{ id = "b_root", text = "Root", enabled = core.has(core.pinned_root), onclick = core.nav_root_selected }
   core.dialog:button{ id = "b_rescan", text = "Rescan", onclick = core.rescan }
+  core.dialog:button{ id = "b_preview", text = "Preview: Off", onclick = core.toggle_preview }
 
   core.dialog:separator{}
 
@@ -319,6 +337,7 @@ local function create_dialog()
 
   core.rebuild_rows()
   core.clamp_scroll()
+  core.update_preview_button()
 
   local saved = core.plugin.preferences.bounds
   if saved then core.dialog.bounds = saved end

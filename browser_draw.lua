@@ -70,8 +70,9 @@ local function measure_content_width(gc)
 end
 
 local function paint_empty(gc)
+  local tree_w = core.tree_w()
   gc.color = tc.bg
-  gc:fillRect(Rectangle(0, 0, gc.width, gc.height))
+  gc:fillRect(Rectangle(0, 0, tree_w, gc.height))
   gc.color = tc.dim
   local msg = app.fs.isDirectory(core.root_path) and "Empty folder." or "Set a valid path."
   gc:fillText(msg, core.PAD_X, math.floor((gc.height - font_h) / 2))
@@ -168,13 +169,13 @@ function D.v_thumb_rect()
   local ty = 0
   local m = core.max_v_scroll()
   if m > 0 then ty = math.floor((view_h - th) * core.scroll / m) end
-  return Rectangle(core.canvas_w - core.SB_W, ty, core.SB_W, th)
+  return Rectangle(core.tree_w() - core.SB_W, ty, core.SB_W, th)
 end
 
 local function paint_v_scrollbar(gc)
   if not core.needs_v_scroll() then return end
   local view_h = core.view_h()
-  local sx = gc.width - core.SB_W
+  local sx = core.tree_w() - core.SB_W
   gc.color = tc.sb_track
   gc:fillRect(Rectangle(sx, 0, core.SB_W, view_h))
   local t = D.v_thumb_rect()
@@ -219,7 +220,7 @@ local function paint_context_menu(gc)
   if menu == nil then return end
 
   local h = #menu.items * core.MENU_ROW_H
-  local x = math.min(menu.x, gc.width - core.MENU_W - 1)
+  local x = math.min(menu.x, core.tree_w() - core.MENU_W - 1)
   local y = math.min(menu.y, gc.height - h - 1)
   if x < 0 then x = 0 end
   if y < 0 then y = 0 end
@@ -241,6 +242,42 @@ local function paint_context_menu(gc)
   end
 end
 
+local function preview_rect()
+  local x = core.preview_x()
+  return Rectangle(x, 0, core.canvas_w - x, core.canvas_h)
+end
+
+local function image_fit_rect(image, rect)
+  local pad = 8
+  local max_w = rect.width - pad * 2
+  local max_h = rect.height - pad * 2
+  local scale = math.min(max_w / image.width, max_h / image.height)
+  local w = math.max(1, math.floor(image.width * scale))
+  local h = math.max(1, math.floor(image.height * scale))
+  local x = rect.x + math.floor((rect.width - w) / 2)
+  local y = rect.y + math.floor((rect.height - h) / 2)
+  return Rectangle(x, y, w, h)
+end
+
+local function paint_preview(gc)
+  if not core.has_preview_pane() then return end
+
+  local rect = preview_rect()
+  gc.color = tc.section_bg
+  gc:fillRect(rect)
+  gc.color = tc.tree_line
+  gc:fillRect(Rectangle(rect.x - core.PREVIEW_GAP, 0, core.PREVIEW_GAP, rect.height))
+
+  if core.preview_image == nil then
+    gc.color = tc.dim
+    gc:fillText(core.preview_status, rect.x + core.PAD_X, math.floor((rect.height - font_h) / 2))
+    return
+  end
+
+  local dst = image_fit_rect(core.preview_image, rect)
+  gc:drawImage(core.preview_image, Rectangle(0, 0, core.preview_image.width, core.preview_image.height), dst)
+end
+
 function D.on_paint(ev)
   local gc = ev.context
   core.canvas_w = gc.width
@@ -251,6 +288,7 @@ function D.on_paint(ev)
 
   if #core.visible_rows == 0 then
     paint_empty(gc)
+    paint_preview(gc)
     return
   end
 
@@ -260,7 +298,7 @@ function D.on_paint(ev)
   local view_h = core.view_h()
 
   gc.color = tc.bg
-  gc:fillRect(Rectangle(0, 0, gc.width, gc.height))
+  gc:fillRect(Rectangle(0, 0, core.tree_w(), gc.height))
 
   if core.status_text ~= "" then
     gc.color = tc.dim
@@ -274,6 +312,7 @@ function D.on_paint(ev)
 
   paint_v_scrollbar(gc)
   paint_h_scrollbar(gc)
+  paint_preview(gc)
   paint_context_menu(gc)
 end
 

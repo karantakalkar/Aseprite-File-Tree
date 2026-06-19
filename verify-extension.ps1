@@ -7,7 +7,7 @@ $corePath = Join-Path $root "browser_core.lua"
 $drawPath = Join-Path $root "browser_draw.lua"
 $readmePath = Join-Path $root "README.md"
 $buildPath = Join-Path $root "build-extension.ps1"
-$extensionPath = Join-Path $root "aseprite-folder-browser.aseprite-extension"
+$extensionPath = Join-Path $root "aseprite-file-tree.aseprite-extension"
 
 foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $readmePath, $buildPath)) {
     if (-not (Test-Path -LiteralPath $path)) {
@@ -16,8 +16,8 @@ foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $readmePath, 
 }
 
 $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
-if ($package.name -ne "aseprite-folder-browser") {
-    throw "package.json name must be aseprite-folder-browser"
+if ($package.name -ne "aseprite-file-tree") {
+    throw "package.json name must be aseprite-file-tree"
 }
 
 if ($package.contributes.scripts[0].path -ne "./folder_browser.lua") {
@@ -50,8 +50,6 @@ foreach ($removedText in @(
     'text = "Home"',
     "Set as Top",
     "Go to Parent",
-    "Folders",
-    "Images",
     "MIN_DEEP_SEARCH",
     "collect_filtered_expanded_rows"
 )) {
@@ -62,7 +60,7 @@ foreach ($removedText in @(
 
 foreach ($text in @(
     "plugin:newCommand",
-    "Folder Browser",
+    "File Tree",
     "Dialog",
     "browser_core",
     "browser_draw"
@@ -90,7 +88,23 @@ foreach ($text in @(
     "toggle_favorite",
     "queue_filter",
     "apply_pending_filter",
-    "pending_filter_text"
+    "pending_filter_text",
+    "New .aseprite File",
+    "New Folder",
+    "create_aseprite_file",
+    "create_folder",
+    "makeDirectory",
+    "rename_path",
+    "os.rename",
+    "Sprite(16, 16)",
+    "preview_enabled",
+    "toggle_preview",
+    "load_preview",
+    "Image{ fromFile = path }",
+    "Delete",
+    "delete_path",
+    "delete_folder",
+    "os.remove"
 )) {
     if (-not $core.Contains($text) -and -not $main.Contains($text)) {
         throw "Core browser feature is missing: $text"
@@ -118,6 +132,8 @@ foreach ($text in @(
 foreach ($text in @(
     "paint_tree_lines",
     "paint_context_menu",
+    "paint_preview",
+    "drawImage",
     "section_bg",
     "menu_text",
     "Favorites"
@@ -128,13 +144,13 @@ foreach ($text in @(
 }
 
 foreach ($text in @(
-    "root_label",
+    "root_entry",
     "clear_root",
     'text = "Path"',
     'text = "Search"',
     'text = "Type"',
     'text = "Root"',
-    'text = "Clear"',
+    'text = "Preview: Off"',
     "Set Root"
 )) {
     if (-not $allText.Contains($text)) {
@@ -143,11 +159,13 @@ foreach ($text in @(
 }
 
 foreach ($text in @(
-    "CHANGELOG",
-    "Release",
     "Search",
     "Favorites",
-    "Right-click"
+    "Right-click",
+    "Preview",
+    "Delete",
+    "typed extension",
+    "empty tree space"
 )) {
     if (-not $readme.Contains($text)) {
         throw "README is missing publish-ready documentation: $text"
@@ -166,7 +184,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($extensionPath)
 try {
     $entries = $zip.Entries | ForEach-Object { $_.FullName }
-    foreach ($entry in @("package.json", "folder_browser.lua", "browser_core.lua", "browser_draw.lua", "README.md", "CHANGELOG.md")) {
+    foreach ($entry in @("package.json", "folder_browser.lua", "browser_core.lua", "browser_draw.lua", "README.md")) {
         if ($entries -notcontains $entry) {
             throw "Extension archive must contain $entry at the root"
         }

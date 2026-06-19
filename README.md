@@ -26,6 +26,7 @@ Open `File Tree` from Aseprite's script/plugin menu. The root path defaults to t
 Sprite    Use the current sprite's folder as the root.
 Root      Navigate to the pinned root folder (set via right-click).
 Rescan    Reload folder contents.
+Preview   Toggle the right-side file preview pane.
 ```
 
 ### Mouse Interactions
@@ -34,7 +35,13 @@ Rescan    Reload folder contents.
 - **Single-click** a file to select (highlight) it.
 - **Double-click** a file to open it in Aseprite.
 - **Double-click** a folder to drill into it as the new root.
-- **Right-click** a folder for context menu (Set Root, Add/Remove Favorite, Copy Path, Reveal in Explorer).
+- **Right-click** a folder to create a new `.aseprite` file or folder, set root, add/remove favorite, copy path, or reveal in Explorer.
+- **Right-click** empty tree space to create a new `.aseprite` file or folder in the current root.
+- **Right-click** a file or folder and choose "Rename" to rename it.
+- Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
+- **Right-click** a file or folder and choose "Delete" to permanently delete it after confirmation. Folder deletion is recursive.
+- Use **Preview** to show or hide the right-side preview pane. When preview is on, single-click a file to preview its first frame.
+- The tree refreshes automatically after creating, renaming, or deleting files and folders.
 - **Right-click** the Root label to clear the pinned root.
 - **Mouse wheel** or **scrollbar** to scroll. **Shift + wheel** for horizontal scroll.
 
