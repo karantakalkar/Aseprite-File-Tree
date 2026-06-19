@@ -141,12 +141,14 @@ local function on_mousedown(ev)
     return
   end
 
-  select_row(row)
-
+  -- Right-click opens the menu only; it must not select or preview-load files.
   if is_right_click(ev) then
     core.open_context_menu(row, ev.x, ev.y)
     return
   end
+
+  -- Left-click selection is the only click path that refreshes preview content.
+  select_row(row)
 
   core.close_context_menu()
 
@@ -389,14 +391,11 @@ local function create_dialog()
     onwheel = on_wheel
   }
 
-  core.rebuild_rows()
-  core.clamp_scroll()
-  core.update_preview_button()
-
   local saved = core.plugin.preferences.bounds
   if saved then core.dialog.bounds = saved end
 
   core.dialog:show{ wait = false, autoscrollbars = false }
+  core.refresh()
 end
 
 local function toggle_browser()

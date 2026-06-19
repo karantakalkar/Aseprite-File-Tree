@@ -266,6 +266,7 @@ function M.preview_row(row)
     M.clear_preview("Select a file to preview.")
     return
   end
+  if M.preview_path == row.path and M.preview_image ~= nil then return end
   M.load_preview(row.path)
 end
 
@@ -295,15 +296,11 @@ function M.save_prefs()
   p.preview_enabled = M.preview_enabled
   p.preview_w = M.preview_w
   if M.dialog then p.bounds = M.dialog.bounds end
+
+  M.write_browser_settings()
 end
 
-function M.save_browser_settings()
-  -- Save durable navigation settings to both plugin prefs and a small Lua file.
-  local p = M.plugin.preferences
-  p.root_path = M.root_path
-  p.favorites = M.favorites
-  p.pinned_root = M.pinned_root
-
+function M.write_browser_settings()
   -- Persist key browser settings even when Aseprite skips plugin preference flushing.
   local file = io.open(settings_path(), "w")
   if file then
@@ -314,6 +311,15 @@ function M.save_browser_settings()
     file:write("}\n")
     file:close()
   end
+end
+
+function M.save_browser_settings()
+  -- Save durable navigation settings to both plugin prefs and a small Lua file.
+  local p = M.plugin.preferences
+  p.root_path = M.root_path
+  p.favorites = M.favorites
+  p.pinned_root = M.pinned_root
+  M.write_browser_settings()
 end
 
 function M.load_browser_settings()
@@ -393,10 +399,10 @@ function M.set_tree_cursor(cursor)
 end
 
 function M.set_resize_cursor(active)
-  -- MouseCursor has no horizontal-resize icon, so POINTER marks the divider.
+  -- Use the standard horizontal resize cursor on the tree/preview divider.
   if MouseCursor == nil then return end
   if active then
-    M.set_tree_cursor(MouseCursor.POINTER)
+    M.set_tree_cursor(MouseCursor.WE_RESIZE)
   else
     M.set_tree_cursor(MouseCursor.ARROW)
   end

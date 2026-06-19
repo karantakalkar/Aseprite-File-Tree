@@ -272,6 +272,16 @@ local function image_fit_rect(image, rect)
   return Rectangle(x, y, w, h)
 end
 
+local function paint_centered_preview_text(gc, rect, text)
+  -- Preview status needs strong contrast and centered placement.
+  local size = gc:measureText(text)
+  local x = rect.x + math.floor((rect.width - size.width) / 2)
+  local y = rect.y + math.floor((rect.height - size.height) / 2)
+  if x < rect.x + core.PAD_X then x = rect.x + core.PAD_X end
+  gc.color = tc.text
+  gc:fillText(text, x, y)
+end
+
 local function paint_preview(gc)
   -- Draw preview background, divider, status text, or the selected image.
   if not core.has_preview_pane() then return end
@@ -283,8 +293,7 @@ local function paint_preview(gc)
   gc:fillRect(Rectangle(rect.x - core.PREVIEW_GAP, 0, core.PREVIEW_GAP, rect.height))
 
   if core.preview_image == nil then
-    gc.color = tc.dim
-    gc:fillText(core.preview_status, rect.x + core.PAD_X, math.floor((rect.height - font_h) / 2))
+    paint_centered_preview_text(gc, rect, core.preview_status)
     return
   end
 
