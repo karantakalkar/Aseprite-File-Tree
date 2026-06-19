@@ -5,6 +5,7 @@ local script_src = debug.getinfo(1, "S").source:sub(2)
 local script_dir = app.fs.filePath(script_src)
 
 local function load_mod(name, ...)
+  -- Load sibling Lua modules from the installed extension folder.
   local path = app.fs.joinPath(script_dir, name .. ".lua")
   local chunk = assert(loadfile(path))
   return chunk(...)
@@ -12,37 +13,51 @@ end
 
 local core = load_mod("browser_core")
 local draw = load_mod("browser_draw", core)
+
+-- Timers implement debounced search without blocking canvas repaint.
 local debounce_timer = nil
 local search_timer = nil
 
 local function stop_timers()
+  -- Stop search timers before closing or restarting debounce.
   if debounce_timer ~= nil and debounce_timer.isRunning then debounce_timer:stop() end
   if search_timer ~= nil and search_timer.isRunning then search_timer:stop() end
 end
 
 local function restart_filter_timer()
+  -- Restart the debounce delay after each search text edit.
   stop_timers()
   debounce_timer:start()
 end
 
 local function is_right_click(ev)
+  -- Aseprite versions differ between MouseButton enum and numeric button values.
   if MouseButton ~= nil and ev.button == MouseButton.RIGHT then return true end
   return ev.button == 2
 end
 
 local function in_v_scrollbar(x)
+  -- Vertical scrollbar lives on the right edge of the tree area.
   return core.needs_v_scroll() and x >= core.tree_w() - core.SB_W and x < core.tree_w()
 end
 
 local function in_h_scrollbar(y)
+  -- Horizontal scrollbar lives on the bottom edge of the canvas.
   return core.needs_h_scroll() and y >= core.canvas_h - core.SB_H
 end
 
 local function in_preview_pane(x)
+  -- Preview pane consumes the right side when enabled and wide enough.
   return core.has_preview_pane() and x >= core.tree_w()
 end
 
+local function in_preview_divider(x)
+  -- Resize handle is a small band around the tree/preview divider.
+  return core.is_preview_divider(x)
+end
+
 local function on_v_sb_click(x, y)
+  -- Start vertical thumb drag or page the tree up/down.
   if not in_v_scrollbar(x) then return false end
   local t = draw.v_thumb_rect()
   if y >= t.y and y <= t.y + t.height then
@@ -61,6 +76,7 @@ local function on_v_sb_click(x, y)
 end
 
 local function on_h_sb_click(x, y)
+  -- Start horizontal thumb drag or page the tree left/right.
   if not in_h_scrollbar(y) then return false end
   local t = draw.h_thumb_rect()
   if x >= t.x and x <= t.x + t.width then
@@ -79,6 +95,7 @@ local function on_h_sb_click(x, y)
 end
 
 local function select_row(row)
+  -- Select real tree rows and refresh preview when needed.
   if row == nil or row.is_section or row.is_divider or row.is_shortcut then return end
   core.selected = row.path
   core.preview_row(row)
@@ -88,20 +105,33 @@ end
 local function on_mousedown(ev)
   -- Ignore clicks outside canvas bounds.
   if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then return end
+
+  -- Context menu clicks are handled before tree/scrollbar hit tests.
   local menu_item = core.context_item_at(ev.x, ev.y)
   if core.run_context_action(menu_item) then return end
 
+  -- The preview divider can be dragged to resize the pane.
+  if in_preview_divider(ev.x) and not is_right_click(ev) then
+    core.preview_dragging = true
+    core.set_resize_cursor(true)
+    core.close_context_menu()
+    return
+  end
+
+  -- Preview area is passive; it does not select tree rows.
   if in_preview_pane(ev.x) then
     core.close_context_menu()
     core.dialog:repaint()
     return
   end
 
+  -- Scrollbars take priority over row clicks.
   if on_v_sb_click(ev.x, ev.y) then return end
   if on_h_sb_click(ev.x, ev.y) then return end
 
   local row = core.row_at_y(ev.y)
   if row == nil or row.is_divider then
+    -- Empty tree space has a small creation menu on right-click.
     if row == nil and is_right_click(ev) then
       core.open_context_menu(nil, ev.x, ev.y)
       return
@@ -155,8 +185,18 @@ local function on_dblclick(ev)
 end
 
 local function on_mousemove(ev)
+  -- Resizing preview is continuous while the mouse is held down.
+  if core.preview_dragging then
+    core.set_resize_cursor(true)
+    core.resize_preview_at(ev.x)
+    return
+  end
+
+  local over_divider = in_preview_divider(ev.x)
+
   -- Guard: if cursor is outside canvas bounds, treat as mouse leave.
-  if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h or in_preview_pane(ev.x) then
+  if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h or (in_preview_pane(ev.x) and not over_divider) then
+    core.set_resize_cursor(false)
     if core.hovered_idx ~= nil then
       core.hovered_idx = nil
       core.dialog:repaint()
@@ -166,6 +206,9 @@ local function on_mousemove(ev)
     return
   end
 
+  core.set_resize_cursor(over_divider)
+
+  -- When a context menu is open, mouse movement only updates menu hover.
   if core.context_menu ~= nil then
     local _, idx = core.context_item_at(ev.x, ev.y, true)
     if core.context_hover ~= idx then
@@ -175,6 +218,7 @@ local function on_mousemove(ev)
     return
   end
 
+  -- Vertical scrollbar thumb drag updates scroll based on mouse movement.
   if core.sb_dragging then
     local m = core.max_v_scroll()
     local t = draw.v_thumb_rect()
@@ -188,6 +232,7 @@ local function on_mousemove(ev)
     return
   end
 
+  -- Horizontal scrollbar thumb drag updates h_scroll based on mouse movement.
   if core.hsb_dragging then
     local m = core.max_h_scroll()
     local t = draw.h_thumb_rect()
@@ -201,6 +246,7 @@ local function on_mousemove(ev)
     return
   end
 
+  -- Normal movement updates row hover for highlight repainting.
   local idx = nil
   if not in_v_scrollbar(ev.x) and not in_h_scrollbar(ev.y) then
     local _, row_idx = core.row_at_y(ev.y)
@@ -213,14 +259,19 @@ local function on_mousemove(ev)
 end
 
 local function on_mouseup()
+  -- Release all drag modes on mouse up.
   core.sb_dragging = false
   core.hsb_dragging = false
+  core.preview_dragging = false
+  core.set_resize_cursor(false)
 end
 
 local function on_mouseleave()
   -- Clear hover when cursor leaves the canvas area.
   core.sb_dragging = false
   core.hsb_dragging = false
+  core.preview_dragging = false
+  core.set_resize_cursor(false)
   if core.hovered_idx ~= nil then
     core.hovered_idx = nil
     core.dialog:repaint()
@@ -229,6 +280,7 @@ local function on_mouseleave()
 end
 
 local function on_wheel(ev)
+  -- Wheel scrolls vertically, shift+wheel scrolls horizontally.
   if in_preview_pane(ev.x) then return end
   if ev.shiftKey then
     core.h_scroll = core.h_scroll + ev.deltaY * core.ROW_H * core.SCROLL_ROWS
@@ -241,6 +293,7 @@ local function on_wheel(ev)
 end
 
 local function create_dialog()
+  -- Build the floating browser dialog and wire all controls.
   core.init_root()
   core.scroll = core.plugin.preferences.scroll or 0
   core.h_scroll = core.plugin.preferences.h_scroll or 0
@@ -250,6 +303,7 @@ local function create_dialog()
     title = "File Tree",
     resizeable = true,
     onclose = function()
+      -- Persist dialog state when the floating window closes.
       stop_timers()
       core.save_prefs()
       core.dialog = nil
@@ -356,6 +410,7 @@ local function toggle_browser()
 end
 
 function init(plugin)
+  -- Register the File Tree command with Aseprite.
   core.plugin = plugin
   plugin:newCommand{
     id = "FileTree",
@@ -366,6 +421,7 @@ function init(plugin)
 end
 
 function exit(plugin)
+  -- Clean up timers and save state when Aseprite unloads the extension.
   stop_timers()
   if core.dialog then
     core.save_prefs()

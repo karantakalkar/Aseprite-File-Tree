@@ -3,8 +3,11 @@
 
 local M = {}
 
+-- Runtime handles supplied by Aseprite when the plugin starts.
 M.plugin = nil
 M.dialog = nil
+
+-- Browser navigation and row state.
 M.root_path = ""
 M.file_cache = {}
 M.visible_rows = {}
@@ -13,29 +16,40 @@ M.h_scroll = 0
 M.history = {}
 M.favorites = {}
 M.pinned_root = ""
+
+-- Search/filter state. pending_filter_text is used by the debounce timer.
 M.filter_text = ""
 M.pending_filter_text = ""
 M.filter_mode = "All"
 M.status_text = ""
+
+-- Selection, hover, and right-click menu state for the tree canvas.
 M.selected = nil
 M.hovered_idx = nil
 M.context_menu = nil
 M.context_hover = nil
+
+-- Preview pane state. preview_image is an Aseprite Image rendered by browser_draw.lua.
 M.preview_enabled = false
+M.preview_w = 150
 M.preview_path = nil
 M.preview_image = nil
 M.preview_status = "Preview off."
+M.tree_cursor = nil
 
+-- Drag state for vertical, horizontal, and preview-resize interactions.
 M.sb_dragging = false
 M.sb_drag_y = 0
 M.sb_drag_scroll = 0
 M.hsb_dragging = false
 M.hsb_drag_x = 0
 M.hsb_drag_scroll = 0
+M.preview_dragging = false
 
 M.content_w = 0
 M.content_dirty = true
 
+-- Shared layout constants for row height, scrollbars, menus, and preview sizing.
 M.ROW_H = 14
 M.INDENT = 10
 M.SB_W = 10
@@ -48,15 +62,19 @@ M.DEF_W = 260
 M.DEF_H = 300
 M.MENU_W = 148
 M.MENU_ROW_H = 16
-M.PREVIEW_W = 150
+M.PREVIEW_DEFAULT_W = 150
+M.PREVIEW_MIN_W = 80
 M.PREVIEW_MIN_TREE_W = 130
-M.PREVIEW_GAP = 1
+M.PREVIEW_GAP = 3
+M.PREVIEW_HANDLE_W = 7
 
+-- Search index caches a flattened tree so text search can expose matching ancestors.
 M.search_matches = {}
 M.search_ancestors = {}
 M.search_index = {}
 M.search_index_root = nil
 
+-- Canvas size is updated during paint; input handlers read the latest values.
 M.canvas_w = M.DEF_W
 M.canvas_h = M.DEF_H
 
@@ -73,15 +91,18 @@ local supported = {
 }
 
 local function lo(s)
+  -- Normalize text for case-insensitive extension/name comparisons.
   return string.lower(s or "")
 end
 
 local function clean_list(list)
+  -- Preferences can be absent or malformed; browser code always wants a table.
   if type(list) == "table" then return list end
   return {}
 end
 
 local function list_has(list, path)
+  -- Simple membership test for favorite paths.
   for _, item in ipairs(list) do
     if item == path then return true end
   end
@@ -89,29 +110,48 @@ local function list_has(list, path)
 end
 
 local function remove_from_list(list, path)
+  -- Remove all matching paths so duplicate favorites cannot survive cleanup.
   for i = #list, 1, -1 do
     if list[i] == path then table.remove(list, i) end
   end
 end
 
 local function trimmed(value)
+  -- Dialog entries are free text; trim before using them as file/folder names.
   return (value or ""):match("^%s*(.-)%s*$")
 end
 
 local function file_exists(path)
+  -- Creation and rename operations should not overwrite files or folders.
   return app.fs.isFile(path) or app.fs.isDirectory(path)
 end
 
-local function append_aseprite_extension(name)
-  if M.has(app.fs.fileExtension(name)) then return name end
-  return name .. ".aseprite"
+local function file_type_options()
+  -- File types shown in the New File dialog.
+  return { ".aseprite", ".ase", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" }
+end
+
+local function file_type_extension(file_type)
+  -- Fall back to the native Aseprite file type when dialog data is missing.
+  if M.has(file_type) then return file_type end
+  return ".aseprite"
+end
+
+local function replace_file_extension(name, file_type)
+  -- The dropdown is authoritative: typed extensions are replaced by the selected type.
+  local ext = app.fs.fileExtension(name)
+  local base = name
+  if M.has(ext) then base = name:sub(1, #name - #ext - 1) end
+  return base .. file_type_extension(file_type)
 end
 
 local function row_is_folder(row)
+  -- Favorites are folder shortcuts, so folder actions apply to both row shapes.
   return row.is_folder or row.is_shortcut
 end
 
 local function rename_file_name(row, name)
+  -- File rename preserves the old extension only when the user omits one.
   if row_is_folder(row) then return name end
   if M.has(app.fs.fileExtension(name)) then return name end
   local ext = app.fs.fileExtension(row.path)
@@ -120,6 +160,7 @@ local function rename_file_name(row, name)
 end
 
 local function replace_path_prefix(path, old_path, new_path)
+  -- Keep stored paths valid when a folder moves or is renamed.
   if not M.has(path) then return path end
   local clean_path = app.fs.normalizePath(path)
   local clean_old = app.fs.normalizePath(old_path)
@@ -132,6 +173,7 @@ local function replace_path_prefix(path, old_path, new_path)
 end
 
 local function path_is_same_or_child(path, parent)
+  -- Used for delete cleanup so nested favorite/history/expanded paths are removed.
   if not M.has(path) then return false end
   local clean_path = app.fs.normalizePath(path)
   local clean_parent = app.fs.normalizePath(parent)
@@ -140,36 +182,43 @@ local function path_is_same_or_child(path, parent)
 end
 
 local function update_path_list(list, old_path, new_path)
+  -- Rewrite every stored path that points at a renamed folder or its children.
   for i, path in ipairs(list) do
     list[i] = replace_path_prefix(path, old_path, new_path)
   end
 end
 
 local function reset_cached_tree()
+  -- Force the next refresh to read the filesystem again.
   M.file_cache = {}
   M.search_index = {}
   M.search_index_root = nil
 end
 
 local function remove_path_prefixes(list, old_path)
+  -- Drop stored paths that were deleted along with a file/folder tree.
   for i = #list, 1, -1 do
     if path_is_same_or_child(list[i], old_path) then table.remove(list, i) end
   end
 end
 
 local function settings_path()
+  -- Small companion settings file for values Aseprite preferences may skip.
   return app.fs.joinPath(app.fs.userConfigPath, "aseprite-file-tree-settings.lua")
 end
 
 local function quoted(value)
+  -- Serialize settings as safe Lua string literals.
   return string.format("%q", value or "")
 end
 
 local function write_setting_line(file, key, value)
+  -- Write one key/value line into the Lua settings file.
   file:write("  ", key, " = ", quoted(value), ",\n")
 end
 
 local function write_favorites(file)
+  -- Persist favorite folder paths as a Lua array.
   file:write("  favorites = {\n")
   for _, path in ipairs(M.favorites) do
     file:write("    ", quoted(path), ",\n")
@@ -178,23 +227,25 @@ local function write_favorites(file)
 end
 
 function M.has(s)
+  -- Treat nil and empty string as absent for path/text values.
   return s ~= nil and s ~= ""
 end
 
 function M.row_name(path)
+  -- Return a compact display name while still handling root-like paths.
   local name = app.fs.fileName(path)
   if M.has(name) then return name end
   return path
 end
 
 function M.is_supported(path)
+  -- Only supported art/image files are shown in the tree.
   return supported[lo(app.fs.fileExtension(path))] == true
 end
 
 function M.load_preview(path)
+  -- Load the selected file directly into an Image for the preview pane.
   M.preview_path = path
-  M.preview_image = nil
-  M.preview_status = "Loading preview..."
 
   local ok, image = pcall(function() return Image{ fromFile = path } end)
   if ok and image ~= nil then
@@ -203,25 +254,13 @@ function M.load_preview(path)
     return
   end
 
-  local sprite = nil
-  ok, image = pcall(function()
-    sprite = app.open(path)
-    if sprite == nil then return nil end
-    return Image(sprite)
-  end)
-
-  if sprite ~= nil then pcall(function() sprite:close() end) end
-  if ok and image ~= nil then
-    M.preview_image = image
-    M.preview_status = ""
-    return
-  end
-
   M.preview_path = nil
+  M.preview_image = nil
   M.preview_status = "Could not preview this file."
 end
 
 function M.preview_row(row)
+  -- Selection drives preview content when the preview pane is enabled.
   if not M.preview_enabled then return end
   if row == nil or row.is_folder or row.is_shortcut then
     M.clear_preview("Select a file to preview.")
@@ -231,6 +270,7 @@ function M.preview_row(row)
 end
 
 function M.toggle_preview()
+  -- Show/hide the preview pane without changing the current tree selection.
   M.preview_enabled = not M.preview_enabled
   if not M.preview_enabled then M.clear_preview("Preview off.") end
   if M.preview_enabled and M.selected ~= nil and app.fs.isFile(M.selected) then M.load_preview(M.selected) end
@@ -241,6 +281,7 @@ function M.toggle_preview()
 end
 
 function M.save_prefs()
+  -- Save UI state into Aseprite's plugin preferences.
   local p = M.plugin.preferences
   p.root_path = M.root_path
   p.expanded = p.expanded or {}
@@ -252,10 +293,12 @@ function M.save_prefs()
   p.filter_text = M.filter_text
   p.filter_mode = M.filter_mode
   p.preview_enabled = M.preview_enabled
+  p.preview_w = M.preview_w
   if M.dialog then p.bounds = M.dialog.bounds end
 end
 
 function M.save_browser_settings()
+  -- Save durable navigation settings to both plugin prefs and a small Lua file.
   local p = M.plugin.preferences
   p.root_path = M.root_path
   p.favorites = M.favorites
@@ -274,6 +317,7 @@ function M.save_browser_settings()
 end
 
 function M.load_browser_settings()
+  -- Load the companion Lua settings file if it exists.
   local chunk = loadfile(settings_path())
   if not chunk then return nil end
   return chunk()
@@ -289,6 +333,7 @@ function M.modify(opts)
 end
 
 function M.short_path(path)
+  -- Compact path label for menus and confirmation dialogs.
   local parent = app.fs.filePath(path)
   local name = M.row_name(path)
   local parent_name = M.row_name(parent)
@@ -297,11 +342,13 @@ function M.short_path(path)
 end
 
 function M.expanded_set()
+  -- Expanded folders are stored in plugin preferences to survive dialog closes.
   M.plugin.preferences.expanded = M.plugin.preferences.expanded or {}
   return M.plugin.preferences.expanded
 end
 
 function M.init_root()
+  -- Initialize root, favorites, filters, and preview state from saved settings.
   local settings = M.load_browser_settings() or {}
 
   if M.has(settings.root_path) then
@@ -318,6 +365,7 @@ function M.init_root()
   M.pending_filter_text = M.filter_text
   M.filter_mode = M.plugin.preferences.filter_mode or "All"
   M.preview_enabled = M.plugin.preferences.preview_enabled == true
+  M.preview_w = M.plugin.preferences.preview_w or M.PREVIEW_DEFAULT_W
   M.preview_status = M.preview_enabled and "Select a file to preview." or "Preview off."
 end
 
@@ -327,36 +375,98 @@ function M.update_root_button()
 end
 
 function M.update_preview_button()
+  -- Keep the preview toggle button text synced with preview_enabled.
   local text = M.preview_enabled and "Preview: On" or "Preview: Off"
   M.modify{ id = "b_preview", text = text }
 end
 
+function M.set_tree_cursor(cursor)
+  -- Aseprite supports changing a canvas cursor through Dialog:modify().
+  if M.tree_cursor == cursor then return end
+  M.tree_cursor = cursor
+  if M.dialog == nil then return end
+  if MouseCursor == nil then return end
+
+  pcall(function()
+    M.modify{ id = "tree", mousecursor = cursor }
+  end)
+end
+
+function M.set_resize_cursor(active)
+  -- MouseCursor has no horizontal-resize icon, so POINTER marks the divider.
+  if MouseCursor == nil then return end
+  if active then
+    M.set_tree_cursor(MouseCursor.POINTER)
+  else
+    M.set_tree_cursor(MouseCursor.ARROW)
+  end
+end
+
 function M.tree_w()
+  -- Tree width shrinks when the preview pane is visible.
   if not M.preview_enabled then return M.canvas_w end
-  if M.canvas_w < M.PREVIEW_MIN_TREE_W + M.PREVIEW_W then return M.canvas_w end
-  return M.canvas_w - M.PREVIEW_W - M.PREVIEW_GAP
+  if M.canvas_w < M.PREVIEW_MIN_TREE_W + M.PREVIEW_MIN_W then return M.canvas_w end
+  M.clamp_preview_w()
+  return M.canvas_w - M.preview_w - M.PREVIEW_GAP
 end
 
 function M.preview_x()
+  -- Preview pane starts just after the tree and divider gap.
   return M.tree_w() + M.PREVIEW_GAP
 end
 
 function M.has_preview_pane()
+  -- Small windows hide the preview pane rather than crushing the tree.
   return M.preview_enabled and M.tree_w() < M.canvas_w
 end
 
 function M.clear_preview(status)
+  -- Clear cached preview image and show a status message instead.
   M.preview_path = nil
   M.preview_image = nil
   M.preview_status = status or "Select a file to preview."
 end
 
+function M.clamp_preview_w()
+  -- Keep the draggable preview width within usable bounds.
+  local max_w = M.canvas_w - M.PREVIEW_MIN_TREE_W - M.PREVIEW_GAP
+  if max_w < M.PREVIEW_MIN_W then max_w = M.PREVIEW_MIN_W end
+  if M.preview_w < M.PREVIEW_MIN_W then M.preview_w = M.PREVIEW_MIN_W end
+  if M.preview_w > max_w then M.preview_w = max_w end
+end
+
+function M.preview_divider_x()
+  -- Divider x is nil when the preview pane is hidden.
+  if not M.has_preview_pane() then return nil end
+  return M.tree_w()
+end
+
+function M.is_preview_divider(x)
+  -- Hit-test a forgiving resize handle around the divider line.
+  local divider_x = M.preview_divider_x()
+  if divider_x == nil then return false end
+  local half = math.floor(M.PREVIEW_HANDLE_W / 2)
+  return x >= divider_x - half and x <= divider_x + half
+end
+
+function M.resize_preview_at(x)
+  -- Convert a dragged divider position into a preview pane width.
+  M.preview_w = M.canvas_w - x - M.PREVIEW_GAP
+  M.clamp_preview_w()
+  M.clamp_scroll()
+  M.content_dirty = true
+  M.save_prefs()
+  if M.dialog then M.dialog:repaint() end
+end
+
 local function sort_entries(a, b)
+  -- Folders sort before files; names are case-insensitive.
   if a.is_folder ~= b.is_folder then return a.is_folder end
   return lo(a.name) < lo(b.name)
 end
 
 function M.scan_folder(path)
+  -- Read one folder level and keep only folders plus supported files.
   local items = {}
   for _, name in ipairs(app.fs.listFiles(path)) do
     local fp = app.fs.joinPath(path, name)
@@ -371,15 +481,18 @@ function M.scan_folder(path)
 end
 
 local function folder_items(path)
+  -- Lazy cache folder scans so expanding/collapsing stays quick.
   if M.file_cache[path] == nil then M.file_cache[path] = M.scan_folder(path) end
   return M.file_cache[path]
 end
 
 function M.is_favorite(path)
+  -- Favorites are stored as absolute folder paths.
   return list_has(M.favorites, path)
 end
 
 function M.toggle_favorite(path)
+  -- Add/remove a folder favorite and persist it immediately.
   if not M.has(path) then return end
   if not app.fs.isDirectory(path) then return end
   if M.is_favorite(path) then
@@ -391,6 +504,7 @@ function M.toggle_favorite(path)
 end
 
 local function mode_matches(item)
+  -- Type filter always lets folders through so matching files can remain reachable.
   if item.is_folder then return true end
   if M.filter_mode == "All" then return true end
   local ext = lo(app.fs.fileExtension(item.path))
@@ -399,6 +513,7 @@ local function mode_matches(item)
 end
 
 local function text_matches(item)
+  -- Plain substring matching keeps search predictable and cheap.
   if not M.has(M.filter_text) then return true end
   -- When a type filter is active, only match file names, not folder names.
   -- Folders appear only as ancestors of matching files.
@@ -407,6 +522,7 @@ local function text_matches(item)
 end
 
 function M.item_matches_filter(item)
+  -- File rows must pass both type and text filters.
   if item.is_folder then return text_matches(item) end
   return mode_matches(item) and text_matches(item)
 end
@@ -418,6 +534,7 @@ local function search_label_text(status)
 end
 
 function M.queue_filter(text)
+  -- Store text immediately, then let the debounce timers apply it.
   M.pending_filter_text = text or ""
   M.status_text = M.pending_filter_text == "" and "" or "Waiting for input..."
   M.save_prefs()
@@ -428,6 +545,7 @@ function M.queue_filter(text)
 end
 
 function M.clear_filter_for_navigation()
+  -- Navigation resets search so the destination folder is visible.
   M.pending_filter_text = ""
   M.filter_text = ""
   M.status_text = ""
@@ -438,6 +556,7 @@ function M.clear_filter_for_navigation()
 end
 
 local function build_search_index(path, ancestors)
+  -- Flatten the tree with ancestor paths so search can show containing folders.
   for _, item in ipairs(folder_items(path)) do
     local next_ancestors = {}
     for _, ancestor in ipairs(ancestors) do table.insert(next_ancestors, ancestor) end
@@ -451,6 +570,7 @@ local function build_search_index(path, ancestors)
 end
 
 local function ensure_search_index()
+  -- Rebuild the search index only when the root changes or cache is reset.
   if M.search_index_root == M.root_path then return end
   M.search_index = {}
   M.search_index_root = M.root_path
@@ -458,6 +578,7 @@ local function ensure_search_index()
 end
 
 local function mark_search_matches()
+  -- Record direct matches and every ancestor needed to display them.
   ensure_search_index()
   for _, indexed in ipairs(M.search_index) do
     if M.item_matches_filter(indexed.item) then
@@ -468,6 +589,7 @@ local function mark_search_matches()
 end
 
 local function add_section(title)
+  -- Add non-clickable section rows such as "Favorites".
   table.insert(M.visible_rows, {
     name = title,
     path = title,
@@ -477,6 +599,7 @@ local function add_section(title)
 end
 
 local function add_divider()
+  -- Add a thin visual separator row.
   table.insert(M.visible_rows, {
     name = "",
     path = "__divider__",
@@ -486,6 +609,7 @@ local function add_divider()
 end
 
 local function add_favorite(path)
+  -- Favorites are displayed as shortcut rows above the main tree.
   if not app.fs.isDirectory(path) then return end
   table.insert(M.visible_rows, {
     name = M.row_name(path),
@@ -498,6 +622,7 @@ local function add_favorite(path)
 end
 
 local function collect_search_rows(path, depth)
+  -- Add only search matches and ancestor folders to visible_rows.
   for _, item in ipairs(folder_items(path)) do
     item.depth = depth
     if M.search_matches[item.path] or M.search_ancestors[item.path] then
@@ -508,6 +633,7 @@ local function collect_search_rows(path, depth)
 end
 
 local function collect_rows(path, depth)
+  -- Add expanded tree rows for normal browsing.
   local exp = M.expanded_set()
   for _, item in ipairs(folder_items(path)) do
     item.depth = depth
@@ -517,6 +643,7 @@ local function collect_rows(path, depth)
 end
 
 function M.rebuild_rows()
+  -- Rebuild every visible row: root panel, favorites, and filtered tree.
   M.visible_rows = {}
   M.search_matches = {}
   M.search_ancestors = {}
@@ -562,6 +689,7 @@ function M.show_searching()
 end
 
 function M.set_filter(text)
+  -- Apply text search and reset scroll to the top of results.
   M.filter_text = text or ""
   M.pending_filter_text = M.filter_text
   M.scroll = 0
@@ -570,10 +698,12 @@ function M.set_filter(text)
 end
 
 function M.apply_pending_filter()
+  -- Timer callback entry point for debounced search.
   M.set_filter(M.pending_filter_text)
 end
 
 function M.set_filter_mode(mode)
+  -- Apply extension filter and reset scroll.
   M.filter_mode = mode or "All"
   M.scroll = 0
   M.h_scroll = 0
@@ -581,34 +711,41 @@ function M.set_filter_mode(mode)
 end
 
 function M.view_h()
+  -- Horizontal scrollbar consumes vertical space when visible.
   if M.needs_h_scroll() then return M.canvas_h - M.SB_H end
   return M.canvas_h
 end
 
 function M.view_w()
+  -- Vertical scrollbar consumes tree width when visible.
   if M.needs_v_scroll() then return M.tree_w() - M.SB_W end
   return M.tree_w()
 end
 
 function M.needs_v_scroll()
+  -- Vertical scroll is based on row count and canvas height.
   return #M.visible_rows * M.ROW_H > M.canvas_h
 end
 
 function M.needs_h_scroll()
+  -- Horizontal scroll is based on measured row text width.
   return M.content_w > M.tree_w()
 end
 
 function M.max_v_scroll()
+  -- Maximum vertical scroll offset in pixels.
   local m = #M.visible_rows * M.ROW_H - M.view_h()
   return m > 0 and m or 0
 end
 
 function M.max_h_scroll()
+  -- Maximum horizontal scroll offset in pixels.
   local m = M.content_w - M.view_w()
   return m > 0 and m or 0
 end
 
 function M.clamp_scroll()
+  -- Keep scroll offsets valid after resizing, filtering, and rescanning.
   if M.scroll < 0 then M.scroll = 0 end
   if M.scroll > M.max_v_scroll() then M.scroll = M.max_v_scroll() end
   if M.h_scroll < 0 then M.h_scroll = 0 end
@@ -616,6 +753,7 @@ function M.clamp_scroll()
 end
 
 function M.refresh()
+  -- Single refresh path for rebuilding rows, saving state, and repainting.
   M.rebuild_rows()
   M.clamp_scroll()
   M.save_prefs()
@@ -630,30 +768,34 @@ function M.refresh()
 end
 
 function M.clear_root()
+  -- Remove the pinned root shortcut.
   M.pinned_root = ""
   M.save_browser_settings()
   M.refresh()
 end
 
 function M.set_pinned_root(path)
+  -- Store a folder for the Root button.
   M.pinned_root = path or ""
   M.save_browser_settings()
   M.refresh()
 end
 
 function M.rescan()
+  -- Manual refresh from disk.
   reset_cached_tree()
   M.refresh()
 end
 
-function M.create_aseprite_file(folder_path, name)
+function M.create_file(folder_path, name, file_type)
+  -- Create a new blank 16x16 sprite and save it with the chosen extension.
   local base_name = app.fs.fileName(trimmed(name))
   if not M.has(base_name) then
     app.alert("Enter a file name.")
     return false
   end
 
-  local clean_name = append_aseprite_extension(base_name)
+  local clean_name = replace_file_extension(base_name, file_type)
   local target = app.fs.joinPath(folder_path, clean_name)
   if file_exists(target) then
     app.alert("A file or folder with that name already exists.")
@@ -681,7 +823,13 @@ function M.create_aseprite_file(folder_path, name)
   return true
 end
 
+function M.create_aseprite_file(folder_path, name)
+  -- Compatibility wrapper for callers that still ask for an Aseprite file.
+  return M.create_file(folder_path, name, ".aseprite")
+end
+
 function M.create_folder(folder_path, name)
+  -- Create a child folder under the requested parent folder.
   local clean_name = app.fs.fileName(trimmed(name))
   if not M.has(clean_name) then
     app.alert("Enter a folder name.")
@@ -710,14 +858,21 @@ function M.create_folder(folder_path, name)
 end
 
 function M.show_new_file_dialog(folder_path)
+  -- Ask for file name and file type before creating a blank sprite file.
   local dialog = nil
-  dialog = Dialog{ title = "New .aseprite File" }
-  dialog:entry{ id = "name", label = "Name", text = "New File.aseprite", focus = true }
+  dialog = Dialog{ title = "New File" }
+  dialog:entry{ id = "name", label = "Name", text = "New File", focus = true }
+  dialog:combobox{
+    id = "file_type",
+    label = "Type",
+    option = ".aseprite",
+    options = file_type_options()
+  }
   dialog:button{
     id = "create",
     text = "Create",
     onclick = function()
-      if M.create_aseprite_file(folder_path, dialog.data.name) then dialog:close() end
+      if M.create_file(folder_path, dialog.data.name, dialog.data.file_type) then dialog:close() end
     end
   }
   dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
@@ -725,6 +880,7 @@ function M.show_new_file_dialog(folder_path)
 end
 
 function M.show_new_folder_dialog(folder_path)
+  -- Ask for a folder name before creating it.
   local dialog = nil
   dialog = Dialog{ title = "New Folder" }
   dialog:entry{ id = "name", label = "Name", text = "New Folder", focus = true }
@@ -740,6 +896,7 @@ function M.show_new_folder_dialog(folder_path)
 end
 
 function M.update_renamed_paths(old_path, new_path, is_folder)
+  -- Rewrite state that references a renamed file or folder.
   M.selected = replace_path_prefix(M.selected, old_path, new_path)
   M.preview_path = replace_path_prefix(M.preview_path, old_path, new_path)
 
@@ -759,6 +916,7 @@ function M.update_renamed_paths(old_path, new_path, is_folder)
 end
 
 function M.clear_deleted_paths(path)
+  -- Remove state that points at a deleted file/folder tree.
   if path_is_same_or_child(M.selected, path) then M.selected = nil end
   if path_is_same_or_child(M.preview_path, path) then M.clear_preview("Select a file to preview.") end
 
@@ -776,6 +934,7 @@ function M.clear_deleted_paths(path)
 end
 
 function M.delete_folder(path)
+  -- Recursively delete folder contents before removing the folder itself.
   for _, name in ipairs(app.fs.listFiles(path)) do
     local child = app.fs.joinPath(path, name)
     if app.fs.isDirectory(child) then
@@ -797,6 +956,7 @@ function M.delete_folder(path)
 end
 
 function M.delete_path(row)
+  -- Delete a file or folder row after confirmation has already happened.
   local path = row.path
   local ok = nil
   local err = nil
@@ -820,6 +980,7 @@ function M.delete_path(row)
 end
 
 function M.show_delete_dialog(row)
+  -- Confirm destructive delete operations in a small modal dialog.
   local dialog = nil
   local item_type = row_is_folder(row) and "folder and all contents" or "file"
   dialog = Dialog{ title = "Delete" }
@@ -837,6 +998,7 @@ function M.show_delete_dialog(row)
 end
 
 function M.rename_path(row, name)
+  -- Rename a file/folder without converting file contents.
   local clean_name = rename_file_name(row, app.fs.fileName(trimmed(name)))
   if not M.has(clean_name) then
     app.alert("Enter a name.")
@@ -867,6 +1029,7 @@ function M.rename_path(row, name)
 end
 
 function M.show_rename_dialog(row)
+  -- Ask for the new display name for a file or folder row.
   local dialog = nil
   dialog = Dialog{ title = "Rename" }
   dialog:entry{ id = "name", label = "Name", text = M.row_name(row.path), focus = true }
@@ -882,6 +1045,7 @@ function M.show_rename_dialog(row)
 end
 
 function M.nav_to(path, push)
+  -- Change the browser root and optionally push the old root into history.
   if push and M.has(M.root_path) then table.insert(M.history, M.root_path) end
   M.clear_filter_for_navigation()
   M.root_path = app.fs.normalizePath(path)
@@ -898,16 +1062,19 @@ function M.nav_to(path, push)
 end
 
 function M.nav_back()
+  -- Return to the last root path from history.
   local prev = table.remove(M.history)
   if prev then M.nav_to(prev) end
 end
 
 function M.nav_up()
+  -- Use the parent folder as the current root.
   local p = app.fs.filePath(M.root_path)
   if M.has(p) and p ~= M.root_path then M.nav_to(p, true) end
 end
 
 function M.nav_sprite()
+  -- Jump to the active sprite's folder when a sprite is open.
   local s = app.activeSprite
   if s and M.has(s.filename) then M.nav_to(app.fs.filePath(s.filename), true) end
 end
@@ -920,13 +1087,14 @@ function M.nav_root_selected()
 end
 
 function M.open_context_menu(row, x, y)
+  -- Build a context menu for a row, or for empty tree space when row is nil.
   if row == nil then
     M.context_menu = {
       x = x,
       y = y,
       row = { path = M.root_path, is_folder = true, is_empty_space = true },
       items = {
-        { label = "New .aseprite File", action = "new_aseprite" },
+        { label = "New File", action = "new_file" },
         { label = "New Folder", action = "new_folder" }
       }
     }
@@ -956,7 +1124,7 @@ function M.open_context_menu(row, x, y)
   table.insert(items, { label = "Open", action = "open" })
 
   if row_is_folder(row) then
-    table.insert(items, { label = "New .aseprite File", action = "new_aseprite" })
+    table.insert(items, { label = "New File", action = "new_file" })
     table.insert(items, { label = "New Folder", action = "new_folder" })
     table.insert(items, { label = "Set Root", action = "set_root" })
     local favorite_text = M.is_favorite(row.path) and "Remove Favorite" or "Add Favorite"
@@ -982,11 +1150,13 @@ function M.open_context_menu(row, x, y)
 end
 
 function M.close_context_menu()
+  -- Hide the custom context menu and clear hover state.
   M.context_menu = nil
   M.context_hover = nil
 end
 
 function M.context_item_at(x, y, return_index)
+  -- Hit-test the custom context menu drawn on the canvas.
   local menu = M.context_menu
   if menu == nil then return nil end
   local menu_x = menu.draw_x or menu.x
@@ -999,6 +1169,7 @@ function M.context_item_at(x, y, return_index)
 end
 
 function M.run_context_action(item)
+  -- Execute the selected context-menu action.
   local menu = M.context_menu
   if item == nil or menu == nil then return false end
   local row = menu.row
@@ -1006,7 +1177,7 @@ function M.run_context_action(item)
 
   if item.action == "clear_root" then
     M.clear_root()
-  elseif item.action == "new_aseprite" then
+  elseif item.action == "new_file" then
     M.show_new_file_dialog(row.path)
   elseif item.action == "new_folder" then
     M.show_new_folder_dialog(row.path)
@@ -1041,6 +1212,7 @@ function M.run_context_action(item)
 end
 
 function M.row_at_y(y)
+  -- Convert a canvas y coordinate into a visible row.
   local idx = math.floor((y + M.scroll) / M.ROW_H) + 1
   if idx >= 1 and idx <= #M.visible_rows then return M.visible_rows[idx], idx end
   return nil, nil

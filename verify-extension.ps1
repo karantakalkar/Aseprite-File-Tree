@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 
+# Resolve every checked file relative to the repo root.
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $packagePath = Join-Path $root "package.json"
 $mainPath = Join-Path $root "folder_browser.lua"
@@ -9,12 +10,14 @@ $readmePath = Join-Path $root "README.md"
 $buildPath = Join-Path $root "build-extension.ps1"
 $extensionPath = Join-Path $root "aseprite-file-tree.aseprite-extension"
 
+# Fail early when a required source/build file is missing.
 foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $readmePath, $buildPath)) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Missing required file: $path"
     }
 }
 
+# Check package metadata that Aseprite uses to load the extension script.
 $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
 if ($package.name -ne "aseprite-file-tree") {
     throw "package.json name must be aseprite-file-tree"
@@ -24,6 +27,7 @@ if ($package.contributes.scripts[0].path -ne "./folder_browser.lua") {
     throw "package.json must contribute ./folder_browser.lua"
 }
 
+# Load source text once so feature checks stay simple and readable.
 $main = Get-Content -LiteralPath $mainPath -Raw
 $core = Get-Content -LiteralPath $corePath -Raw
 $draw = Get-Content -LiteralPath $drawPath -Raw
@@ -31,6 +35,7 @@ $readme = Get-Content -LiteralPath $readmePath -Raw
 $packageText = Get-Content -LiteralPath $packagePath -Raw
 $allText = "$main`n$core`n$draw`n$readme`n$packageText"
 
+# Guard against accidental local machine paths or removed defaults leaking into releases.
 foreach ($localPattern in @(
     "[A-Za-z]:\\Users\\[^\\]+\\",
     "default_[a-z]+_art_path"
@@ -40,6 +45,7 @@ foreach ($localPattern in @(
     }
 }
 
+# These strings represent old behavior that should stay removed.
 foreach ($removedText in @(
     "recent_roots",
     "add_recent_root",
@@ -58,6 +64,7 @@ foreach ($removedText in @(
     }
 }
 
+# Entry-point checks ensure the extension command and module loading still exist.
 foreach ($text in @(
     "plugin:newCommand",
     "File Tree",
@@ -70,6 +77,7 @@ foreach ($text in @(
     }
 }
 
+# Core feature checks cover browsing, filtering, context actions, creation, preview, and delete.
 foreach ($text in @(
     "app.fs.listFiles",
     "app.open",
@@ -89,17 +97,26 @@ foreach ($text in @(
     "queue_filter",
     "apply_pending_filter",
     "pending_filter_text",
-    "New .aseprite File",
+    "New File",
     "New Folder",
+    "create_file",
     "create_aseprite_file",
+    "file_type_options",
+    "file_type",
     "create_folder",
     "makeDirectory",
     "rename_path",
     "os.rename",
     "Sprite(16, 16)",
     "preview_enabled",
+    "preview_w",
     "toggle_preview",
     "load_preview",
+    "resize_preview_at",
+    "is_preview_divider",
+    "set_resize_cursor",
+    "mousecursor",
+    "MouseCursor.POINTER",
     "Image{ fromFile = path }",
     "Delete",
     "delete_path",
@@ -111,6 +128,7 @@ foreach ($text in @(
     }
 }
 
+# Search behavior checks cover the debounced deep-search implementation.
 foreach ($text in @(
     "search_matches",
     "search_ancestors",
@@ -129,6 +147,7 @@ foreach ($text in @(
     }
 }
 
+# Draw checks cover tree lines, menus, preview rendering, and favorites sections.
 foreach ($text in @(
     "paint_tree_lines",
     "paint_context_menu",
@@ -143,6 +162,7 @@ foreach ($text in @(
     }
 }
 
+# UI label checks catch accidental removal of important controls.
 foreach ($text in @(
     "root_entry",
     "clear_root",
@@ -158,11 +178,14 @@ foreach ($text in @(
     }
 }
 
+# README checks keep visible documentation aligned with shipped behavior.
 foreach ($text in @(
     "Search",
     "Favorites",
     "Right-click",
     "Preview",
+    "Drag the divider",
+    "pointer cursor",
     "Delete",
     "typed extension",
     "empty tree space"
@@ -172,14 +195,17 @@ foreach ($text in @(
     }
 }
 
+# Keep release version fixed unless the package metadata is intentionally bumped.
 if ($package.version -ne "0.2.0") {
     throw "package.json version must be 0.2.0"
 }
 
+# Verify the built extension exists before inspecting archive contents.
 if (-not (Test-Path -LiteralPath $extensionPath)) {
     throw "Missing built extension: $extensionPath"
 }
 
+# The extension archive must contain runtime files at the zip root.
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($extensionPath)
 try {

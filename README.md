@@ -35,12 +35,14 @@ Preview   Toggle the right-side file preview pane.
 - **Single-click** a file to select (highlight) it.
 - **Double-click** a file to open it in Aseprite.
 - **Double-click** a folder to drill into it as the new root.
-- **Right-click** a folder to create a new `.aseprite` file or folder, set root, add/remove favorite, copy path, or reveal in Explorer.
-- **Right-click** empty tree space to create a new `.aseprite` file or folder in the current root.
+- **Right-click** a folder to create a new file or folder, set root, add/remove favorite, copy path, or reveal in Explorer.
+- **Right-click** empty tree space to create a new file or folder in the current root.
+- New files ask for a name and file type before they are created.
 - **Right-click** a file or folder and choose "Rename" to rename it.
 - Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
 - **Right-click** a file or folder and choose "Delete" to permanently delete it after confirmation. Folder deletion is recursive.
 - Use **Preview** to show or hide the right-side preview pane. When preview is on, single-click a file to preview its first frame.
+- Drag the divider between the tree and preview pane to resize the preview. Hovering the divider switches to Aseprite's pointer cursor.
 - The tree refreshes automatically after creating, renaming, or deleting files and folders.
 - **Right-click** the Root label to clear the pinned root.
 - **Mouse wheel** or **scrollbar** to scroll. **Shift + wheel** for horizontal scroll.

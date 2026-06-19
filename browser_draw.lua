@@ -4,10 +4,12 @@
 local core = ...
 local D = {}
 
+-- Theme colors are cached so paint functions stay small and consistent.
 local tc = {}
 local font_h = 7
 
 function D.refresh_theme()
+  -- Pull colors from the current Aseprite theme and derive row/menu colors.
   local c = app.theme.color
   local wf = c.window_face or Color{ r = 43, g = 43, b = 43 }
   -- Detect light vs dark theme by average brightness.
@@ -57,6 +59,7 @@ function D.refresh_theme()
 end
 
 local function measure_content_width(gc)
+  -- Measure the widest visible row for horizontal scrolling.
   local max_w = 0
   local px = core.PAD_X
   for _, row in ipairs(core.visible_rows) do
@@ -70,6 +73,7 @@ local function measure_content_width(gc)
 end
 
 local function paint_empty(gc)
+  -- Draw an empty-state message when the root is invalid or has no rows.
   local tree_w = core.tree_w()
   gc.color = tc.bg
   gc:fillRect(Rectangle(0, 0, tree_w, gc.height))
@@ -79,6 +83,7 @@ local function paint_empty(gc)
 end
 
 local function paint_tree_lines(gc, row, y)
+  -- Draw lightweight connector lines for nested folder/file rows.
   if row.is_section or row.depth <= 0 then return end
   local px = core.PAD_X
 
@@ -101,6 +106,7 @@ local function paint_tree_lines(gc, row, y)
 end
 
 local function paint_row(gc, row, idx, view_w)
+  -- Draw one visible tree row, including special section/root/divider rows.
   local y = (idx - 1) * core.ROW_H - core.scroll
   local px = core.PAD_X
   local x = px + row.depth * core.INDENT - core.h_scroll
@@ -161,6 +167,7 @@ local function paint_row(gc, row, idx, view_w)
 end
 
 function D.v_thumb_rect()
+  -- Compute vertical scrollbar thumb position from current scroll offset.
   local view_h = core.view_h()
   local content = #core.visible_rows * core.ROW_H
   local th = math.floor(view_h * view_h / content)
@@ -173,6 +180,7 @@ function D.v_thumb_rect()
 end
 
 local function paint_v_scrollbar(gc)
+  -- Draw the vertical scrollbar when rows overflow the tree height.
   if not core.needs_v_scroll() then return end
   local view_h = core.view_h()
   local sx = core.tree_w() - core.SB_W
@@ -187,6 +195,7 @@ local function paint_v_scrollbar(gc)
 end
 
 function D.h_thumb_rect()
+  -- Compute horizontal scrollbar thumb position from current h_scroll.
   local view_w = core.view_w()
   local th = math.floor(view_w * view_w / core.content_w)
   if th < 20 then th = 20 end
@@ -198,6 +207,7 @@ function D.h_thumb_rect()
 end
 
 local function paint_h_scrollbar(gc)
+  -- Draw the horizontal scrollbar when row labels overflow the tree width.
   if not core.needs_h_scroll() then return end
   local view_w = core.view_w()
   local sy = gc.height - core.SB_H
@@ -216,6 +226,7 @@ local function paint_h_scrollbar(gc)
 end
 
 local function paint_context_menu(gc)
+  -- Draw the custom context menu inside the canvas.
   local menu = core.context_menu
   if menu == nil then return end
 
@@ -243,11 +254,13 @@ local function paint_context_menu(gc)
 end
 
 local function preview_rect()
+  -- Return the preview pane rectangle based on the current divider position.
   local x = core.preview_x()
   return Rectangle(x, 0, core.canvas_w - x, core.canvas_h)
 end
 
 local function image_fit_rect(image, rect)
+  -- Scale the image to fit fully inside the preview pane.
   local pad = 8
   local max_w = rect.width - pad * 2
   local max_h = rect.height - pad * 2
@@ -260,6 +273,7 @@ local function image_fit_rect(image, rect)
 end
 
 local function paint_preview(gc)
+  -- Draw preview background, divider, status text, or the selected image.
   if not core.has_preview_pane() then return end
 
   local rect = preview_rect()
@@ -279,6 +293,7 @@ local function paint_preview(gc)
 end
 
 function D.on_paint(ev)
+  -- Main canvas paint entry point called by Aseprite.
   local gc = ev.context
   core.canvas_w = gc.width
   core.canvas_h = gc.height
