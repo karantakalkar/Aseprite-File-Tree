@@ -28,6 +28,9 @@ M.selected = nil
 M.hovered_idx = nil
 M.context_menu = nil
 M.context_hover = nil
+M.clipboard_path = nil
+M.clipboard_action = nil
+M.clipboard_is_folder = false
 
 -- Preview pane state. preview_image is an Aseprite Image rendered by browser_draw.lua.
 M.preview_enabled = false
@@ -1003,6 +1006,138 @@ function M.show_delete_dialog(row)
   dialog:show{ wait = false }
 end
 
+function M.copy_file(source, target)
+  -- Copy file bytes without opening the file in Aseprite.
+  local input = io.open(source, "rb")
+  if input == nil then return false, "could not read source file" end
+
+  local data = input:read("*a")
+  input:close()
+
+  local output = io.open(target, "wb")
+  if output == nil then return false, "could not write target file" end
+
+  output:write(data)
+  output:close()
+  return true
+end
+
+function M.copy_folder(source, target)
+  -- Recursively copy a folder tree.
+  local ok, err = pcall(function() app.fs.makeDirectory(target) end)
+  if not ok then return false, err end
+
+  for _, name in ipairs(app.fs.listFiles(source)) do
+    local child_source = app.fs.joinPath(source, name)
+    local child_target = app.fs.joinPath(target, name)
+    if app.fs.isDirectory(child_source) then
+      ok, err = M.copy_folder(child_source, child_target)
+    else
+      ok, err = M.copy_file(child_source, child_target)
+    end
+    if not ok then return false, err end
+  end
+
+  return true
+end
+
+function M.copy_path_to_folder(source, target)
+  -- Copy either a file or folder into the destination folder.
+  local target_path = app.fs.joinPath(target, M.row_name(source))
+  if file_exists(target_path) then return false, "target already exists" end
+
+  if app.fs.isDirectory(source) then
+    local ok, err = M.copy_folder(source, target_path)
+    if not ok then return false, err end
+    return true, target_path
+  end
+  local ok, err = M.copy_file(source, target_path)
+  if not ok then return false, err end
+  return true, target_path
+end
+
+function M.cut_path_to_folder(source, target)
+  -- Move a file/folder into the destination folder; copy/delete is the fallback.
+  local target_path = app.fs.joinPath(target, M.row_name(source))
+  if file_exists(target_path) then return false, "target already exists" end
+
+  if app.fs.isDirectory(source) and path_is_same_or_child(target, source) then
+    return false, "cannot paste a folder inside itself"
+  end
+
+  local ok = os.rename(source, target_path)
+  if ok then return true, target_path end
+
+  ok = nil
+  local err = nil
+  if app.fs.isDirectory(source) then
+    ok, err = M.copy_folder(source, target_path)
+    if ok then ok, err = M.delete_folder(source) end
+  else
+    ok, err = M.copy_file(source, target_path)
+    if ok then ok, err = os.remove(source) end
+  end
+
+  if not ok then return false, err end
+  return true, target_path
+end
+
+function M.set_clipboard(row, action)
+  -- Store an internal cut/copy target for later Paste.
+  M.clipboard_path = row.path
+  M.clipboard_action = action
+  M.clipboard_is_folder = row_is_folder(row)
+end
+
+function M.can_paste()
+  -- Paste is available only while the internal clipboard points at an existing item.
+  if not M.has(M.clipboard_path) then return false end
+  return app.fs.isFile(M.clipboard_path) or app.fs.isDirectory(M.clipboard_path)
+end
+
+function M.paste_into(folder_path)
+  -- Paste the internal clipboard item into a folder destination.
+  if not M.can_paste() then
+    app.alert("Nothing to paste.")
+    return false
+  end
+
+  local source = M.clipboard_path
+  local action = M.clipboard_action
+  local ok = nil
+  local result = nil
+
+  if action == "cut" then
+    ok, result = M.cut_path_to_folder(source, folder_path)
+  else
+    ok, result = M.copy_path_to_folder(source, folder_path)
+  end
+
+  if not ok then
+    app.alert("Could not paste: " .. tostring(result))
+    return false
+  end
+
+  local pasted_folder = M.clipboard_is_folder
+  if action == "cut" then
+    M.update_renamed_paths(source, result, M.clipboard_is_folder)
+    M.clipboard_path = nil
+    M.clipboard_action = nil
+    M.clipboard_is_folder = false
+  else
+    M.selected = result
+  end
+
+  if pasted_folder then M.clear_preview("Select a file to preview.") end
+
+  local exp = M.expanded_set()
+  exp[folder_path] = true
+  reset_cached_tree()
+  M.save_browser_settings()
+  M.refresh()
+  return true
+end
+
 function M.rename_path(row, name)
   -- Rename a file/folder without converting file contents.
   local clean_name = rename_file_name(row, app.fs.fileName(trimmed(name)))
@@ -1104,6 +1239,7 @@ function M.open_context_menu(row, x, y)
         { label = "New Folder", action = "new_folder" }
       }
     }
+    if M.can_paste() then table.insert(M.context_menu.items, { label = "Paste", action = "paste" }) end
     M.dialog:repaint()
     return
   end
@@ -1128,10 +1264,13 @@ function M.open_context_menu(row, x, y)
   end
 
   table.insert(items, { label = "Open", action = "open" })
+  table.insert(items, { label = "Cut", action = "cut" })
+  table.insert(items, { label = "Copy", action = "copy" })
 
   if row_is_folder(row) then
     table.insert(items, { label = "New File", action = "new_file" })
     table.insert(items, { label = "New Folder", action = "new_folder" })
+    if M.can_paste() then table.insert(items, { label = "Paste", action = "paste" }) end
     table.insert(items, { label = "Set Root", action = "set_root" })
     local favorite_text = M.is_favorite(row.path) and "Remove Favorite" or "Add Favorite"
     table.insert(items, { label = favorite_text, action = "favorite" })
@@ -1191,6 +1330,12 @@ function M.run_context_action(item)
     M.show_rename_dialog(row)
   elseif item.action == "delete" then
     M.show_delete_dialog(row)
+  elseif item.action == "cut" then
+    M.set_clipboard(row, "cut")
+  elseif item.action == "copy" then
+    M.set_clipboard(row, "copy")
+  elseif item.action == "paste" then
+    M.paste_into(row.path)
   elseif item.action == "set_root" then
     M.set_pinned_root(row.path)
   elseif item.action == "open" then

@@ -93,6 +93,7 @@ foreach ($text in @(
     "filter_mode",
     "favorites",
     "context_menu",
+    "clipboard_path",
     "toggle_favorite",
     "write_browser_settings",
     "queue_filter",
@@ -122,6 +123,13 @@ foreach ($text in @(
     "Delete",
     "delete_path",
     "delete_folder",
+    "copy_file",
+    "copy_folder",
+    "set_clipboard",
+    "paste_into",
+    "Cut",
+    "Copy",
+    "Paste",
     "os.remove"
 )) {
     if (-not $core.Contains($text) -and -not $main.Contains($text)) {
@@ -188,6 +196,9 @@ foreach ($text in @(
     "Drag the divider",
     "horizontal resize cursor",
     "Delete",
+    "Cut",
+    "Copy",
+    "paste",
     "typed extension",
     "empty tree space"
 )) {
