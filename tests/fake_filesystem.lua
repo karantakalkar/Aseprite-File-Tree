@@ -168,9 +168,18 @@ end
 
 function fake_os.remove(path)
   local clean = normalize(path)
-  if not fake_fs.isFile(clean) then return nil, "remove failed" end
-  F.entries[clean] = nil
-  return true
+  if fake_fs.isFile(clean) then
+    F.entries[clean] = nil
+    return true
+  end
+  if fake_fs.isDirectory(clean) then
+    for child in pairs(F.entries) do
+      if is_child(child, clean) then return nil, "remove failed" end
+    end
+    F.entries[clean] = nil
+    return true
+  end
+  return nil, "remove failed"
 end
 
 function fake_os.execute(command)

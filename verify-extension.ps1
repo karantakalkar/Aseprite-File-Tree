@@ -144,6 +144,7 @@ foreach ($text in @(
     "Delete",
     "delete_path",
     "delete_folder",
+    "return os.remove(path)",
     "copy_file",
     "copy_folder",
     "set_clipboard",

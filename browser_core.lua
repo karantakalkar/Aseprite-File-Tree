@@ -1124,11 +1124,11 @@ function M.delete_folder(path)
   end
 
   if app.fs.removeDirectory then
-    local ok, err = pcall(function() return app.fs.removeDirectory(path) end)
-    if ok and err ~= false then return true end
-    if ok then return false, "removeDirectory failed" end
-    return false, err
+    local called, removed = pcall(function() return app.fs.removeDirectory(path) end)
+    if called and removed ~= false and removed ~= nil then return true end
+    if not app.fs.isDirectory(path) then return true end
   end
+
   return os.remove(path)
 end
 

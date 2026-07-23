@@ -94,6 +94,19 @@ local function test_transactional_folder_copy()
   expect(fake.read_file("/workspace/copied/item.txt") == "content", "folder content is missing")
 end
 
+local function test_directory_removal_fallback()
+  reset()
+  make_folder("/workspace/folder")
+
+  local remove_directory = environment.app.fs.removeDirectory
+  environment.app.fs.removeDirectory = function() return false end
+  local ok, err = core.delete_folder("/workspace/folder")
+  environment.app.fs.removeDirectory = remove_directory
+
+  expect(ok, err or "empty-directory fallback failed")
+  expect(not environment.app.fs.isDirectory("/workspace/folder"), "fallback left the folder behind")
+end
+
 local function test_keep_both()
   reset()
   make_folder("/workspace/source")
@@ -345,6 +358,7 @@ test_chunked_file_copy()
 test_failed_write_cleanup()
 test_recursive_copy_guard()
 test_transactional_folder_copy()
+test_directory_removal_fallback()
 test_keep_both()
 test_replace()
 test_folder_merge()
