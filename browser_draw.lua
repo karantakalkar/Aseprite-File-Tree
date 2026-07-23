@@ -63,8 +63,9 @@ function D.refresh_theme()
   tc.sel_text = c.filelist_selected_row_text or Color{ r = 255, g = 255, b = 255 }
   tc.hover_bg = c.menuitem_highlight_face or Color{ r = 124, g = 144, b = 159 }
   tc.hover_text = c.menuitem_highlight_text or Color{ r = 255, g = 255, b = 255 }
-  tc.drop_bg = c.filelist_selected_row_face or tc.hover_bg
-  tc.drop_text = c.filelist_selected_row_text or tc.hover_text
+  tc.drop_bg = Color{ r = 25, g = 120, b = 150, a = 255 }
+  tc.drop_text = Color{ r = 255, g = 255, b = 255, a = 255 }
+  tc.drop_border = Color{ r = 85, g = 230, b = 255, a = 255 }
   tc.folder = c.link_text or Color{ r = 44, g = 76, b = 145 }
   tc.dim = c.disabled or Color{ r = 150, g = 130, b = 117 }
   tc.tree_line = Color{ r = 118, g = 118, b = 118, a = 255 }
@@ -168,6 +169,10 @@ local function paint_row(gc, row, idx, view_w)
   elseif idx % 2 == 0 then gc.color = tc.row_even
   else gc.color = tc.row_odd end
   gc:fillRect(Rectangle(0, y, view_w, core.ROW_H))
+  if is_drop then
+    gc.color = tc.drop_border
+    gc:strokeRect(Rectangle(1, y + 1, view_w - 2, core.ROW_H - 2))
+  end
 
   if is_drop then base_text = tc.drop_text
   elseif is_sel then base_text = tc.sel_text
@@ -190,7 +195,11 @@ local function paint_row(gc, row, idx, view_w)
   if row.row_type == "favorite" then
     gc:fillText("* " .. row.name, label_x, ty)
   else
-    gc:fillText(row.name, label_x, ty)
+    local label = row.name
+    if is_drop then
+      label = label .. (core.drag_copy and "  [Copy here]" or "  [Move here]")
+    end
+    gc:fillText(label, label_x, ty)
   end
 end
 

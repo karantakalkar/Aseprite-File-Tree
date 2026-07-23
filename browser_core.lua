@@ -449,6 +449,15 @@ function M.set_resize_cursor(active)
   end
 end
 
+function M.set_drag_cursor(valid_target)
+  if MouseCursor == nil then return end
+  if valid_target then
+    M.set_tree_cursor(MouseCursor.MOVE)
+  else
+    M.set_tree_cursor(MouseCursor.NOT_ALLOWED)
+  end
+end
+
 function M.tree_w()
   -- Tree width shrinks when the preview pane is visible.
   if not M.preview_enabled then return M.canvas_w end

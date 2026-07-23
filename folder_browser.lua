@@ -146,6 +146,7 @@ local function update_file_drag(ev)
 
   core.drag_target_path = target
   core.drag_target_idx = idx
+  core.set_drag_cursor(target ~= nil)
 
   if row ~= nil and row.is_folder and target ~= nil then
     local expanded = core.expanded_set()

@@ -53,6 +53,7 @@ The tree checks cached and expanded folders for external filesystem changes once
 - **Right-click** a file or folder and choose "Cut" or "Copy", then paste it into a folder or empty tree space.
 - **Drag** a file or folder onto another folder to move it. Hold **Ctrl** while dragging to copy it.
 - Drop an item on the Root row or empty tree space to move or copy it into the current root folder.
+- Valid drag destinations use a cyan outline and a move cursor; invalid destinations use the blocked cursor.
 - Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
 - **Right-click** a file or folder and choose "Delete" to permanently delete it after confirmation. Folder deletion is recursive.
 - Assign Red, Green, Blue, Yellow, or Purple row colors from a file or folder's right-click menu.
