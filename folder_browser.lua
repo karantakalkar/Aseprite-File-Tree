@@ -14,6 +14,7 @@ end
 local core = load_mod("browser_core")
 local draw = load_mod("browser_draw", core)
 local watcher = load_mod("filesystem_watcher", core)
+core.platform = load_mod("platform")
 
 -- Timers implement debounced search without blocking canvas repaint.
 local debounce_timer = nil

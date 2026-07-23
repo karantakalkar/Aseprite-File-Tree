@@ -12,6 +12,7 @@ $files = @(
     "browser_core.lua",
     "browser_draw.lua",
     "filesystem_watcher.lua",
+    "platform.lua",
     "README.md"
 )
 

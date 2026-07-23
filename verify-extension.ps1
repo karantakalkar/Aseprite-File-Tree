@@ -7,12 +7,13 @@ $mainPath = Join-Path $root "folder_browser.lua"
 $corePath = Join-Path $root "browser_core.lua"
 $drawPath = Join-Path $root "browser_draw.lua"
 $watcherPath = Join-Path $root "filesystem_watcher.lua"
+$platformPath = Join-Path $root "platform.lua"
 $readmePath = Join-Path $root "README.md"
 $buildPath = Join-Path $root "build-extension.ps1"
 $extensionPath = Join-Path $root "aseprite-file-tree.aseprite-extension"
 
 # Fail early when a required source/build file is missing.
-foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $watcherPath, $readmePath, $buildPath)) {
+foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $watcherPath, $platformPath, $readmePath, $buildPath)) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Missing required file: $path"
     }
@@ -33,9 +34,10 @@ $main = Get-Content -LiteralPath $mainPath -Raw
 $core = Get-Content -LiteralPath $corePath -Raw
 $draw = Get-Content -LiteralPath $drawPath -Raw
 $watcher = Get-Content -LiteralPath $watcherPath -Raw
+$platform = Get-Content -LiteralPath $platformPath -Raw
 $readme = Get-Content -LiteralPath $readmePath -Raw
 $packageText = Get-Content -LiteralPath $packagePath -Raw
-$allText = "$main`n$core`n$draw`n$watcher`n$readme`n$packageText"
+$allText = "$main`n$core`n$draw`n$watcher`n$platform`n$readme`n$packageText"
 
 # Guard against accidental local machine paths or removed defaults leaking into releases.
 foreach ($localPattern in @(
@@ -224,7 +226,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($extensionPath)
 try {
     $entries = $zip.Entries | ForEach-Object { $_.FullName }
-    foreach ($entry in @("package.json", "folder_browser.lua", "browser_core.lua", "browser_draw.lua", "filesystem_watcher.lua", "README.md")) {
+    foreach ($entry in @("package.json", "folder_browser.lua", "browser_core.lua", "browser_draw.lua", "filesystem_watcher.lua", "platform.lua", "README.md")) {
         if ($entries -notcontains $entry) {
             throw "Extension archive must contain $entry at the root"
         }

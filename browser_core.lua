@@ -6,6 +6,7 @@ local M = {}
 -- Runtime handles supplied by Aseprite when the plugin starts.
 M.plugin = nil
 M.dialog = nil
+M.platform = nil
 
 -- Browser navigation and row state.
 M.root_path = ""
@@ -1629,7 +1630,7 @@ function M.open_context_menu(row, x, y)
     table.insert(items, { label = "Clear Root", action = "clear_root" })
     if M.has(M.pinned_root) then
       table.insert(items, { label = "Copy Path", action = "copy_path" })
-      table.insert(items, { label = "Reveal in Explorer", action = "reveal" })
+      table.insert(items, { label = "Reveal in File Manager", action = "reveal" })
     end
     M.context_menu = { x = x, y = y, row = row, items = items }
     M.dialog:repaint()
@@ -1656,7 +1657,7 @@ function M.open_context_menu(row, x, y)
 
   -- Always available for files, folders, and favorites.
   table.insert(items, { label = "Copy Path", action = "copy_path" })
-  table.insert(items, { label = "Reveal in Explorer", action = "reveal" })
+  table.insert(items, { label = "Reveal in File Manager", action = "reveal" })
 
   M.context_menu = {
     x = x,
@@ -1714,17 +1715,13 @@ function M.run_context_action(item)
   elseif item.action == "open" then
     if row.is_shortcut or row.is_folder then M.nav_to(row.path, true) else app.open(row.path) end
   elseif item.action == "copy_path" then
-    -- Copy absolute path to clipboard (Windows).
     local target = row.is_root_info and M.pinned_root or row.path
-    os.execute('cmd /c "set /p =' .. target .. '" < nul | clip')
+    local ok, err = M.platform.copy_path(target)
+    if not ok then app.alert("Could not copy path: " .. tostring(err)) end
   elseif item.action == "reveal" then
-    -- Reveal in Windows Explorer.
     local target = row.is_root_info and M.pinned_root or row.path
-    if app.fs.isDirectory(target) then
-      os.execute('explorer "' .. target .. '"')
-    else
-      os.execute('explorer /select,"' .. target .. '"')
-    end
+    local ok, err = M.platform.reveal(target)
+    if not ok then app.alert("Could not open file manager: " .. tostring(err)) end
   elseif item.action == "favorite" then
     if row.is_folder or row.is_shortcut then
       M.toggle_favorite(row.path)
