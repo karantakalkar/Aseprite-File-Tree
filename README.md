@@ -34,11 +34,10 @@ Sprite    Use the current sprite's folder as the root.
 Root      Navigate to the pinned root folder (set via right-click).
 Expand All / Collapse All
           Toggle every folder below the current root.
-Rescan    Reload folder contents.
 Preview   Toggle the right-side file preview pane.
 ```
 
-The tree checks cached and expanded folders for external filesystem changes once per second. Rescan remains available as a full manual refresh.
+The tree checks cached and expanded folders for external filesystem changes once per second.
 
 ### Mouse Interactions
 

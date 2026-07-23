@@ -64,7 +64,9 @@ foreach ($removedText in @(
     "Set as Top",
     "Go to Parent",
     "MIN_DEEP_SEARCH",
-    "collect_filtered_expanded_rows"
+    "collect_filtered_expanded_rows",
+    "b_rescan",
+    'text = "Rescan"'
 )) {
     if ($allText.Contains($removedText)) {
         throw "Removed confusing behavior is still referenced: $removedText"
