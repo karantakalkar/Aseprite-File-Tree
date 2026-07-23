@@ -471,11 +471,12 @@ local function create_dialog()
   core.dialog:entry{
     id = "root_entry",
     label = "",
-    text = core.root_path,
+    text = core.path_draft,
     onchange = function()
-      core.nav_to(core.dialog.data.root_entry)
+      core.set_path_draft(core.dialog.data.root_entry)
     end
   }
+  core.dialog:button{ id = "b_open_path", text = "Go", onclick = core.open_path_draft }
 
   core.dialog:newrow()
   core.dialog:label{ id = "search_label", label = "", text = "Search" }

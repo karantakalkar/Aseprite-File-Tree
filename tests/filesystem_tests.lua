@@ -310,6 +310,21 @@ local function test_dialog_bounds_capture()
   core.dialog = nil
 end
 
+local function test_path_draft_waits_for_go()
+  reset()
+  make_folder("/workspace/folder")
+  core.root_path = "/workspace"
+  core.dialog = nil
+
+  core.set_path_draft("\\\\server\\share")
+  expect(core.path_draft == "\\\\server\\share", "path draft changed while typing")
+  expect(core.root_path == "/workspace", "typing navigated before Go was pressed")
+
+  core.set_path_draft("/workspace/folder")
+  expect(core.open_path_draft(), "Go did not open an existing folder")
+  expect(core.root_path == "/workspace/folder", "Go opened the wrong folder")
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -327,6 +342,7 @@ test_color_submenu()
 test_drag_state_cleanup()
 test_windows_reveal_uses_shell_launch()
 test_dialog_bounds_capture()
+test_path_draft_waits_for_go()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

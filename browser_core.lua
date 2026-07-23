@@ -10,6 +10,7 @@ M.platform = nil
 
 -- Browser navigation and row state.
 M.root_path = ""
+M.path_draft = ""
 M.file_cache = {}
 M.visible_rows = {}
 M.scroll = 0
@@ -442,6 +443,7 @@ function M.init_root()
   M.preview_enabled = M.plugin.preferences.preview_enabled == true
   M.preview_w = M.plugin.preferences.preview_w or M.PREVIEW_DEFAULT_W
   M.preview_status = M.preview_enabled and "Select a file to preview." or "Preview off."
+  M.path_draft = M.root_path
 end
 
 -- Enable/disable Root button based on whether a pinned root is set.
@@ -874,7 +876,7 @@ function M.refresh()
   M.update_preview_button()
   M.update_expand_button()
   if M.dialog then
-    M.modify{ id = "root_entry", text = M.root_path }
+    M.modify{ id = "root_entry", text = M.path_draft }
     M.modify{ id = "filter_entry", text = M.filter_text }
     M.modify{ id = "search_label", text = search_label_text(M.status_text) }
     M.dialog:repaint()
@@ -1702,6 +1704,7 @@ function M.nav_to(path, push)
   if push and M.has(M.root_path) then table.insert(M.history, M.root_path) end
   M.clear_filter_for_navigation()
   M.root_path = app.fs.normalizePath(path)
+  M.path_draft = M.root_path
   M.file_cache = {}
   M.search_index = {}
   M.search_index_root = nil
@@ -1713,6 +1716,21 @@ function M.nav_to(path, push)
   M.all_folders_expanded = false
   M.save_browser_settings()
   M.refresh()
+end
+
+function M.set_path_draft(path)
+  M.path_draft = path or ""
+end
+
+function M.open_path_draft()
+  local path = app.fs.normalizePath(trimmed(M.path_draft))
+  if not app.fs.isDirectory(path) then
+    app.alert("Folder not found.")
+    return false
+  end
+
+  M.nav_to(path, true)
+  return true
 end
 
 function M.nav_back()
