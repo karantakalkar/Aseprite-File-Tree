@@ -128,6 +128,7 @@ foreach ($text in @(
     "create_folder",
     "makeDirectory",
     "rename_path",
+    "rename_dialog_name",
     "os.rename",
     "Sprite(16, 16)",
     "preview_enabled",

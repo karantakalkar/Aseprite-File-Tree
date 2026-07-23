@@ -202,6 +202,21 @@ local function test_case_rename()
   expect(fake.read_file("/workspace/SPRITE.PNG") == "sprite", "renamed file is missing")
 end
 
+local function test_rename_dialog_name()
+  expect(
+    core.rename_dialog_name({ path = "/workspace/sprite.png", is_folder = false }) == "sprite",
+    "file rename autofill included the extension"
+  )
+  expect(
+    core.rename_dialog_name({ path = "/workspace/archive.tar.gz", is_folder = false }) == "archive.tar",
+    "file rename autofill removed more than the final extension"
+  )
+  expect(
+    core.rename_dialog_name({ path = "/workspace/folder", is_folder = true }) == "folder",
+    "folder rename autofill changed the folder name"
+  )
+end
+
 local function test_color_tags()
   reset()
   make_folder("/workspace/folder")
@@ -336,6 +351,7 @@ test_folder_merge()
 test_cut_fallback()
 test_drop_guards()
 test_case_rename()
+test_rename_dialog_name()
 test_color_tags()
 test_expand_collapse_all()
 test_color_submenu()

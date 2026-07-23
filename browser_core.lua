@@ -1687,7 +1687,7 @@ function M.show_rename_dialog(row)
   -- Ask for the new display name for a file or folder row.
   local dialog = nil
   dialog = Dialog{ title = "Rename" }
-  dialog:entry{ id = "name", label = "Name", text = M.row_name(row.path), focus = true }
+  dialog:entry{ id = "name", label = "Name", text = M.rename_dialog_name(row), focus = true }
   dialog:button{
     id = "rename",
     text = "Rename",
@@ -1697,6 +1697,16 @@ function M.show_rename_dialog(row)
   }
   dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
   dialog:show{ wait = false }
+end
+
+function M.rename_dialog_name(row)
+  local name = M.row_name(row.path)
+  if row_is_folder(row) then return name end
+
+  local extension = app.fs.fileExtension(name)
+  if not M.has(extension) then return name end
+  if #name == #extension + 1 then return name end
+  return name:sub(1, #name - #extension - 1)
 end
 
 function M.nav_to(path, push)

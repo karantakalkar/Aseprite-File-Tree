@@ -56,7 +56,7 @@ The tree checks cached and expanded folders for external filesystem changes once
 - Keep the left mouse button held over a collapsed folder for 0.5 seconds to expand it while dragging.
 - Drop an item on the Root row or empty tree space to move or copy it into the current root folder.
 - Valid drag destinations use a cyan outline and a move cursor; invalid destinations use the blocked cursor.
-- Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
+- File rename autofill hides the extension. Rename preserves it when you omit one and uses a typed extension when you include one.
 - **Right-click** a file or folder and choose "Delete" to permanently delete it after confirmation. Folder deletion is recursive.
 - Assign Red, Green, Blue, Yellow, or Purple row colors from a file or folder's right-click menu.
 - Folder colors cascade to all descendants. A directly tagged child uses its own color instead.
