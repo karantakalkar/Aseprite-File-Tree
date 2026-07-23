@@ -13,6 +13,7 @@ local core = assert(loadfile(core_path, "t", environment))()
 local platform = assert(loadfile(platform_path, "t", environment))()
 
 core.plugin = { preferences = { expanded = {} } }
+core.platform = platform
 core.save_browser_settings = function() end
 core.refresh = function() end
 
@@ -338,6 +339,12 @@ local function test_windows_reveal_uses_shell_launch()
   expect(
     fake.executed_commands[2] == 'start "" explorer.exe /select,"/workspace/item.png"',
     "file reveal did not use an asynchronous Explorer launch"
+  )
+
+  expect(platform.remove_empty_directory("/workspace/empty"), "native directory removal failed")
+  expect(
+    fake.executed_commands[3] == 'attrib -R "/workspace/empty" >nul 2>&1 & rmdir "/workspace/empty"',
+    "native directory removal did not clear read-only before rmdir"
   )
 end
 

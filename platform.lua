@@ -48,4 +48,12 @@ function P.reveal(path)
   return false, "unsupported operating system"
 end
 
+function P.remove_empty_directory(path)
+  if not app.os.windows then return false, "unsupported operating system" end
+
+  local quoted_path = windows_quote(path)
+  local command = "attrib -R " .. quoted_path .. " >nul 2>&1 & rmdir " .. quoted_path
+  return command_succeeded(command)
+end
+
 return P

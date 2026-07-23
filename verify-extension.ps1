@@ -91,6 +91,12 @@ if (-not $platform.Contains('start "" explorer.exe')) {
     throw "Windows reveal must launch Explorer asynchronously"
 }
 
+foreach ($text in @("remove_empty_directory", "attrib -R", "rmdir")) {
+    if (-not $allText.Contains($text)) {
+        throw "Windows directory removal fallback is missing: $text"
+    }
+}
+
 foreach ($text in @("dialog_x", "dialog_y", "dialog_width", "dialog_height")) {
     if (-not $core.Contains($text)) {
         throw "Durable dialog bounds are missing: $text"

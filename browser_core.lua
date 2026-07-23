@@ -1129,7 +1129,13 @@ function M.delete_folder(path)
     if not app.fs.isDirectory(path) then return true end
   end
 
-  return os.remove(path)
+  local removed, remove_error = os.remove(path)
+  if removed then return true end
+  if not app.os.windows or M.platform == nil then return false, remove_error end
+
+  local fallback_removed, fallback_error = M.platform.remove_empty_directory(path)
+  if fallback_removed then return true end
+  return false, fallback_error or remove_error
 end
 
 function M.delete_path(row)
