@@ -796,6 +796,16 @@ function M.rescan()
   M.refresh()
 end
 
+function M.make_directory(path)
+  local call_ok, created = pcall(function()
+    return app.fs.makeDirectory(path)
+  end)
+
+  if not call_ok then return false, created end
+  if not created then return false, "could not create directory" end
+  return true
+end
+
 function M.create_file(folder_path, name, file_type)
   -- Create a new blank 16x16 sprite and save it with the chosen extension.
   local base_name = app.fs.fileName(trimmed(name))
@@ -851,7 +861,7 @@ function M.create_folder(folder_path, name)
     return false
   end
 
-  local ok, err = pcall(function() app.fs.makeDirectory(target) end)
+  local ok, err = M.make_directory(target)
   if not ok then
     app.alert("Could not create folder: " .. tostring(err))
     return false
@@ -1024,7 +1034,7 @@ end
 
 function M.copy_folder(source, target)
   -- Recursively copy a folder tree.
-  local ok, err = pcall(function() app.fs.makeDirectory(target) end)
+  local ok, err = M.make_directory(target)
   if not ok then return false, err end
 
   for _, name in ipairs(app.fs.listFiles(source)) do
