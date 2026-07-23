@@ -31,6 +31,8 @@ Open `File Tree` from Aseprite's script/plugin menu. The root path defaults to t
 ^ Up      Use the parent folder as the root.
 Sprite    Use the current sprite's folder as the root.
 Root      Navigate to the pinned root folder (set via right-click).
+Expand All / Collapse All
+          Toggle every folder below the current root.
 Rescan    Reload folder contents.
 Preview   Toggle the right-side file preview pane.
 ```

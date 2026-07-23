@@ -32,6 +32,8 @@ local function reset()
   fake.add_directory("/workspace")
   core.plugin.preferences.expanded = {}
   core.color_tags = {}
+  core.file_cache = {}
+  core.all_folders_expanded = false
 end
 
 local function test_directory_creation()
@@ -218,6 +220,21 @@ local function test_color_tags()
   expect(core.color_tag_for_path("/workspace/renamed/child") == nil, "delete kept child tag")
 end
 
+local function test_expand_collapse_all()
+  reset()
+  core.root_path = "/workspace"
+  make_folder("/workspace/one")
+  make_folder("/workspace/one/two")
+
+  core.toggle_all_folders()
+  expect(core.expanded_set()["/workspace/one"], "expand all missed first folder")
+  expect(core.expanded_set()["/workspace/one/two"], "expand all missed nested folder")
+
+  core.toggle_all_folders()
+  expect(core.expanded_set()["/workspace/one"] == nil, "collapse all kept first folder")
+  expect(core.expanded_set()["/workspace/one/two"] == nil, "collapse all kept nested folder")
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -230,6 +247,7 @@ test_cut_fallback()
 test_drop_guards()
 test_case_rename()
 test_color_tags()
+test_expand_collapse_all()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

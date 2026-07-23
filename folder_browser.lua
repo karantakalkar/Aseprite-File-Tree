@@ -216,6 +216,7 @@ local function on_mousedown(ev)
   elseif row.is_folder then
     local exp = core.expanded_set()
     exp[row.path] = not exp[row.path]
+    core.all_folders_expanded = false
     core.refresh()
   else
     core.dialog:repaint()
@@ -238,6 +239,7 @@ local function on_dblclick(ev)
   elseif row.is_folder then
     local exp = core.expanded_set()
     exp[row.path] = not exp[row.path]
+    core.all_folders_expanded = false
     core.refresh()
   else
     app.open(row.path)
@@ -444,6 +446,7 @@ local function create_dialog()
   core.dialog:button{ id = "b_up", text = "^ Up", onclick = core.nav_up }
   core.dialog:button{ id = "b_sprite", text = "Sprite", onclick = core.nav_sprite }
   core.dialog:button{ id = "b_root", text = "Root", enabled = core.has(core.pinned_root), onclick = core.nav_root_selected }
+  core.dialog:button{ id = "b_expand_all", text = "Expand All", onclick = core.toggle_all_folders }
   core.dialog:button{ id = "b_rescan", text = "Rescan", onclick = core.rescan }
   core.dialog:button{ id = "b_preview", text = "Preview: Off", onclick = core.toggle_preview }
 

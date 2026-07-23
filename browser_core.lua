@@ -18,6 +18,7 @@ M.history = {}
 M.favorites = {}
 M.pinned_root = ""
 M.color_tags = {}
+M.all_folders_expanded = false
 
 -- Search/filter state. pending_filter_text is used by the debounce timer.
 M.filter_text = ""
@@ -418,6 +419,11 @@ function M.update_preview_button()
   -- Keep the preview toggle button text synced with preview_enabled.
   local text = M.preview_enabled and "Preview: On" or "Preview: Off"
   M.modify{ id = "b_preview", text = text }
+end
+
+function M.update_expand_button()
+  local text = M.all_folders_expanded and "Collapse All" or "Expand All"
+  M.modify{ id = "b_expand_all", text = text }
 end
 
 function M.set_tree_cursor(cursor)
@@ -823,6 +829,7 @@ function M.refresh()
   M.save_prefs()
   M.update_root_button()
   M.update_preview_button()
+  M.update_expand_button()
   if M.dialog then
     M.modify{ id = "root_entry", text = M.root_path }
     M.modify{ id = "filter_entry", text = M.filter_text }
@@ -835,6 +842,32 @@ function M.clear_root()
   -- Remove the pinned root shortcut.
   M.pinned_root = ""
   M.save_browser_settings()
+  M.refresh()
+end
+
+local function expand_folder_tree(path, expanded)
+  for _, item in ipairs(folder_items(path)) do
+    if item.is_folder then
+      expanded[item.path] = true
+      expand_folder_tree(item.path, expanded)
+    end
+  end
+end
+
+function M.toggle_all_folders()
+  if not app.fs.isDirectory(M.root_path) then return end
+  local expanded = M.expanded_set()
+
+  if M.all_folders_expanded then
+    for path in pairs(expanded) do
+      if path_is_same_or_child(path, M.root_path) then expanded[path] = nil end
+    end
+    M.all_folders_expanded = false
+  else
+    expand_folder_tree(M.root_path, expanded)
+    M.all_folders_expanded = true
+  end
+
   M.refresh()
 end
 
@@ -1631,6 +1664,7 @@ function M.nav_to(path, push)
   M.hovered_idx = nil
   M.selected = nil
   M.context_menu = nil
+  M.all_folders_expanded = false
   M.save_browser_settings()
   M.refresh()
 end
