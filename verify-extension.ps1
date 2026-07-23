@@ -194,8 +194,8 @@ foreach ($text in @(
 # UI label checks catch accidental removal of important controls.
 foreach ($text in @(
     "root_entry",
-    "b_open_path",
     "open_path_draft",
+    "restart_path_timer",
     "clear_root",
     'text = "Path"',
     'text = "Search"',

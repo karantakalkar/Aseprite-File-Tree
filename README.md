@@ -23,7 +23,7 @@ Run `.\run-tests.ps1` for filesystem behavior tests, then `.\build-extension.ps1
 ## Use
 
 Open `File Tree` from Aseprite's script/plugin menu. The root path defaults to the last saved path, then to Aseprite's user documents folder.
-Edit the Path field and press **Go** to navigate to another folder.
+Edit the Path field to navigate automatically after you stop typing.
 
 ### Controls
 

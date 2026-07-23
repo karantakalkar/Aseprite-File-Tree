@@ -19,11 +19,16 @@ core.platform = load_mod("platform")
 -- Timers implement debounced search without blocking canvas repaint.
 local debounce_timer = nil
 local search_timer = nil
+local path_timer = nil
 local drag_expand_timer = nil
 
 local function stop_search_timers()
   if debounce_timer ~= nil and debounce_timer.isRunning then debounce_timer:stop() end
   if search_timer ~= nil and search_timer.isRunning then search_timer:stop() end
+end
+
+local function stop_path_timer()
+  if path_timer ~= nil and path_timer.isRunning then path_timer:stop() end
 end
 
 local function stop_drag_expand_timer()
@@ -33,6 +38,7 @@ end
 
 local function stop_timers()
   stop_search_timers()
+  stop_path_timer()
   stop_drag_expand_timer()
 end
 
@@ -40,6 +46,11 @@ local function restart_filter_timer()
   -- Restart the debounce delay after each search text edit.
   stop_search_timers()
   debounce_timer:start()
+end
+
+local function restart_path_timer()
+  stop_path_timer()
+  path_timer:start()
 end
 
 local function is_right_click(ev)
@@ -467,6 +478,14 @@ local function create_dialog()
     end
   }
 
+  path_timer = Timer{
+    interval = 1.5,
+    ontick = function()
+      path_timer:stop()
+      core.open_path_draft()
+    end
+  }
+
   core.dialog:label{ id = "path_label", label = "", text = "Path" }
   core.dialog:entry{
     id = "root_entry",
@@ -474,9 +493,9 @@ local function create_dialog()
     text = core.path_draft,
     onchange = function()
       core.set_path_draft(core.dialog.data.root_entry)
+      restart_path_timer()
     end
   }
-  core.dialog:button{ id = "b_open_path", text = "Go", onclick = core.open_path_draft }
 
   core.dialog:newrow()
   core.dialog:label{ id = "search_label", label = "", text = "Search" }

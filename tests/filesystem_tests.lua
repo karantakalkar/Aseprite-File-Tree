@@ -310,7 +310,7 @@ local function test_dialog_bounds_capture()
   core.dialog = nil
 end
 
-local function test_path_draft_waits_for_go()
+local function test_path_draft_waits_before_navigation()
   reset()
   make_folder("/workspace/folder")
   core.root_path = "/workspace"
@@ -318,11 +318,11 @@ local function test_path_draft_waits_for_go()
 
   core.set_path_draft("\\\\server\\share")
   expect(core.path_draft == "\\\\server\\share", "path draft changed while typing")
-  expect(core.root_path == "/workspace", "typing navigated before Go was pressed")
+  expect(core.root_path == "/workspace", "editing the path navigated immediately")
 
   core.set_path_draft("/workspace/folder")
-  expect(core.open_path_draft(), "Go did not open an existing folder")
-  expect(core.root_path == "/workspace/folder", "Go opened the wrong folder")
+  expect(core.open_path_draft(), "debounced navigation did not open an existing folder")
+  expect(core.root_path == "/workspace/folder", "debounced navigation opened the wrong folder")
 end
 
 test_directory_creation()
@@ -342,7 +342,7 @@ test_color_submenu()
 test_drag_state_cleanup()
 test_windows_reveal_uses_shell_launch()
 test_dialog_bounds_capture()
-test_path_draft_waits_for_go()
+test_path_draft_waits_before_navigation()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

@@ -1724,10 +1724,8 @@ end
 
 function M.open_path_draft()
   local path = app.fs.normalizePath(trimmed(M.path_draft))
-  if not app.fs.isDirectory(path) then
-    app.alert("Folder not found.")
-    return false
-  end
+  if path == M.root_path then return true end
+  if not app.fs.isDirectory(path) then return false end
 
   M.nav_to(path, true)
   return true
