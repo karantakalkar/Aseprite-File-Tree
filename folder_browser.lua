@@ -107,12 +107,18 @@ end
 local function begin_file_drag(row, ev)
   if row.is_section or row.is_divider or row.is_root_info or row.is_shortcut then return end
   core.drag_source = row.path
+  core.drag_row = row
+  core.drag_pointer_down = true
   core.drag_start_x = ev.x
   core.drag_start_y = ev.y
 end
 
 local function update_file_drag(ev)
   if core.drag_source == nil then return false end
+  if not core.drag_pointer_down then
+    core.clear_file_drag()
+    return false
+  end
 
   if not core.drag_started then
     local moved_x = math.abs(ev.x - core.drag_start_x)
@@ -214,11 +220,6 @@ local function on_mousedown(ev)
   -- Shortcuts: single-click only selects, double-click navigates.
   if row.is_shortcut then
     core.dialog:repaint()
-  elseif row.is_folder then
-    local exp = core.expanded_set()
-    exp[row.path] = not exp[row.path]
-    core.all_folders_expanded = false
-    core.refresh()
   else
     core.dialog:repaint()
   end
@@ -322,9 +323,13 @@ end
 local function on_mouseup()
   -- Release all drag modes on mouse up.
   local source = core.drag_source
+  local clicked_row = core.drag_row
   local target = core.drag_target_path
   local copy = core.drag_copy
   local should_drop = core.drag_started and target ~= nil
+  local should_toggle = not core.drag_started
+    and clicked_row ~= nil
+    and clicked_row.is_folder
 
   core.sb_dragging = false
   core.hsb_dragging = false
@@ -334,6 +339,11 @@ local function on_mouseup()
 
   if should_drop then
     core.drop_path_into(source, target, copy)
+  elseif should_toggle then
+    local expanded = core.expanded_set()
+    expanded[clicked_row.path] = not expanded[clicked_row.path]
+    core.all_folders_expanded = false
+    core.refresh()
   elseif core.dialog then
     core.dialog:repaint()
   end

@@ -35,6 +35,8 @@ M.clipboard_path = nil
 M.clipboard_action = nil
 M.clipboard_is_folder = false
 M.drag_source = nil
+M.drag_row = nil
+M.drag_pointer_down = false
 M.drag_started = false
 M.drag_start_x = 0
 M.drag_start_y = 0
@@ -1578,6 +1580,8 @@ end
 
 function M.clear_file_drag()
   M.drag_source = nil
+  M.drag_row = nil
+  M.drag_pointer_down = false
   M.drag_started = false
   M.drag_target_path = nil
   M.drag_target_idx = nil

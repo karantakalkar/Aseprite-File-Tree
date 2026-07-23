@@ -261,6 +261,20 @@ local function test_color_submenu()
   core.dialog = nil
 end
 
+local function test_drag_state_cleanup()
+  reset()
+  core.drag_source = "/workspace/item.png"
+  core.drag_row = { path = core.drag_source, is_folder = false }
+  core.drag_pointer_down = true
+  core.drag_started = true
+
+  core.clear_file_drag()
+  expect(core.drag_source == nil, "drag source was not cleared")
+  expect(core.drag_row == nil, "drag row was not cleared")
+  expect(not core.drag_pointer_down, "drag pointer state remained pressed")
+  expect(not core.drag_started, "drag remained active")
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -275,6 +289,7 @@ test_case_rename()
 test_color_tags()
 test_expand_collapse_all()
 test_color_submenu()
+test_drag_state_cleanup()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))
