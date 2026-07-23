@@ -1246,20 +1246,37 @@ function M.copy_folder(source, target)
   return true
 end
 
-local function temporary_copy_path(target)
-  local candidate = target .. ".aseprite-file-tree-copy"
+function M.copy_name_path(path, is_folder)
+  local parent = app.fs.filePath(path)
+  local name = app.fs.fileName(path)
+  local title = name
+  local suffix = ""
+
+  if not is_folder then
+    local extension = app.fs.fileExtension(name)
+    if M.has(extension) then
+      title = name:sub(1, #name - #extension - 1)
+      suffix = "." .. extension
+    end
+  end
+
+  local candidate = app.fs.joinPath(parent, title .. " copy" .. suffix)
   local number = 2
 
   while file_exists(candidate) do
-    candidate = target .. ".aseprite-file-tree-copy-" .. number
+    candidate = app.fs.joinPath(parent, title .. " copy " .. number .. suffix)
     number = number + 1
   end
 
   return candidate
 end
 
+local function temporary_copy_path(target, is_folder)
+  return M.copy_name_path(target, is_folder)
+end
+
 function M.copy_file_transaction(source, target)
-  local temporary = temporary_copy_path(target)
+  local temporary = temporary_copy_path(target, false)
   local ok, err = M.copy_file(source, temporary)
   if not ok then return false, err end
 
@@ -1271,7 +1288,7 @@ function M.copy_file_transaction(source, target)
 end
 
 function M.copy_folder_transaction(source, target)
-  local temporary = temporary_copy_path(target)
+  local temporary = temporary_copy_path(target, true)
   local ok, err = M.copy_folder(source, temporary)
   if not ok then return false, err end
 
@@ -1300,24 +1317,7 @@ function M.copy_path_to_target(source, target_path)
 end
 
 local function keep_both_path(path)
-  local parent = app.fs.filePath(path)
-  local name = app.fs.fileName(path)
-  local extension = app.fs.fileExtension(name)
-  local title = name
-  local suffix = ""
-
-  if M.has(extension) then
-    title = name:sub(1, #name - #extension - 1)
-    suffix = "." .. extension
-  end
-
-  local candidate = app.fs.joinPath(parent, title .. " copy" .. suffix)
-  local number = 2
-  while file_exists(candidate) do
-    candidate = app.fs.joinPath(parent, title .. " copy " .. number .. suffix)
-    number = number + 1
-  end
-  return candidate
+  return M.copy_name_path(path, app.fs.isDirectory(path))
 end
 
 local function remove_path(path)
@@ -1326,7 +1326,7 @@ local function remove_path(path)
 end
 
 local function swap_staged_path(staged, target)
-  local backup = temporary_copy_path(target .. ".backup")
+  local backup = temporary_copy_path(target, app.fs.isDirectory(target))
   local ok, err = os.rename(target, backup)
   if not ok then return false, err end
 
@@ -1341,7 +1341,7 @@ local function swap_staged_path(staged, target)
 end
 
 function M.replace_path(source, target)
-  local staged = temporary_copy_path(target)
+  local staged = temporary_copy_path(target, app.fs.isDirectory(source))
   local ok, err
 
   if app.fs.isDirectory(source) then
@@ -1441,7 +1441,7 @@ function M.merge_folder(source, target, state)
 end
 
 function M.merge_folder_transaction(source, target, state)
-  local staged = temporary_copy_path(target)
+  local staged = temporary_copy_path(target, true)
   local ok, err = M.copy_folder(target, staged)
   if not ok then return false, err end
 
@@ -1640,7 +1640,7 @@ function M.rename_path(row, name)
     and lo(normalized_old) == lo(normalized_new)
 
   if case_only then
-    local temporary = temporary_copy_path(old_path .. ".rename")
+    local temporary = temporary_copy_path(old_path, row_is_folder(row))
     local moved, move_error = os.rename(old_path, temporary)
     if not moved then
       app.alert("Could not rename: " .. tostring(move_error))

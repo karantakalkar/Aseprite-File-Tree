@@ -125,6 +125,23 @@ local function test_keep_both()
   expect(fake.read_file(result) == "new", "keep-both content is wrong")
 end
 
+local function test_concise_copy_names()
+  reset()
+  expect(
+    core.copy_name_path("/workspace/UI", true) == "/workspace/UI copy",
+    "folder copy name is not concise"
+  )
+  make_folder("/workspace/UI copy")
+  expect(
+    core.copy_name_path("/workspace/UI", true) == "/workspace/UI copy 2",
+    "folder copy collision was not numbered"
+  )
+  expect(
+    core.copy_name_path("/workspace/sprite.png", false) == "/workspace/sprite copy.png",
+    "file copy name misplaced the extension"
+  )
+end
+
 local function test_replace()
   reset()
   make_folder("/workspace/source")
@@ -360,6 +377,7 @@ test_recursive_copy_guard()
 test_transactional_folder_copy()
 test_directory_removal_fallback()
 test_keep_both()
+test_concise_copy_names()
 test_replace()
 test_folder_merge()
 test_cut_fallback()
