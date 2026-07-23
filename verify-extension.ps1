@@ -91,6 +91,12 @@ if (-not $platform.Contains('start "" explorer.exe')) {
     throw "Windows reveal must launch Explorer asynchronously"
 }
 
+foreach ($text in @("dialog_x", "dialog_y", "dialog_width", "dialog_height")) {
+    if (-not $core.Contains($text)) {
+        throw "Durable dialog bounds are missing: $text"
+    }
+}
+
 # Core feature checks cover browsing, filtering, context actions, creation, preview, and delete.
 foreach ($text in @(
     "app.fs.listFiles",

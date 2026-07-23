@@ -296,6 +296,20 @@ local function test_windows_reveal_uses_shell_launch()
   )
 end
 
+local function test_dialog_bounds_capture()
+  reset()
+  core.dialog = {
+    bounds = { x = 40, y = 50, width = 600, height = 700 }
+  }
+
+  core.save_prefs()
+  expect(core.dialog_bounds.x == 40, "dialog x position was not captured")
+  expect(core.dialog_bounds.y == 50, "dialog y position was not captured")
+  expect(core.dialog_bounds.width == 600, "dialog width was not captured")
+  expect(core.dialog_bounds.height == 700, "dialog height was not captured")
+  core.dialog = nil
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -312,6 +326,7 @@ test_expand_collapse_all()
 test_color_submenu()
 test_drag_state_cleanup()
 test_windows_reveal_uses_shell_launch()
+test_dialog_bounds_capture()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

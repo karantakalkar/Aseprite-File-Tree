@@ -19,6 +19,7 @@ M.favorites = {}
 M.pinned_root = ""
 M.color_tags = {}
 M.all_folders_expanded = false
+M.dialog_bounds = nil
 
 -- Search/filter state. pending_filter_text is used by the debounce timer.
 M.filter_text = ""
@@ -240,6 +241,10 @@ local function write_setting_line(file, key, value)
   file:write("  ", key, " = ", quoted(value), ",\n")
 end
 
+local function write_number_setting(file, key, value)
+  file:write("  ", key, " = ", tostring(value), ",\n")
+end
+
 local function write_favorites(file)
   -- Persist favorite folder paths as a Lua array.
   file:write("  favorites = {\n")
@@ -331,7 +336,16 @@ function M.save_prefs()
   p.filter_mode = M.filter_mode
   p.preview_enabled = M.preview_enabled
   p.preview_w = M.preview_w
-  if M.dialog then p.bounds = M.dialog.bounds end
+  if M.dialog then
+    local bounds = M.dialog.bounds
+    p.bounds = bounds
+    M.dialog_bounds = {
+      x = bounds.x,
+      y = bounds.y,
+      width = bounds.width,
+      height = bounds.height
+    }
+  end
 
   M.write_browser_settings()
 end
@@ -343,6 +357,12 @@ function M.write_browser_settings()
     file:write("return {\n")
     write_setting_line(file, "root_path", M.root_path)
     write_setting_line(file, "pinned_root", M.pinned_root)
+    if M.dialog_bounds ~= nil then
+      write_number_setting(file, "dialog_x", M.dialog_bounds.x)
+      write_number_setting(file, "dialog_y", M.dialog_bounds.y)
+      write_number_setting(file, "dialog_width", M.dialog_bounds.width)
+      write_number_setting(file, "dialog_height", M.dialog_bounds.height)
+    end
     write_favorites(file)
     write_color_tags(file)
     file:write("}\n")
@@ -406,6 +426,16 @@ function M.init_root()
   M.favorites = clean_list(settings.favorites or M.plugin.preferences.favorites)
   M.pinned_root = settings.pinned_root or M.plugin.preferences.pinned_root or ""
   M.color_tags = clean_map(settings.color_tags or M.plugin.preferences.color_tags)
+  if settings.dialog_width ~= nil then
+    M.dialog_bounds = {
+      x = settings.dialog_x,
+      y = settings.dialog_y,
+      width = settings.dialog_width,
+      height = settings.dialog_height
+    }
+  else
+    M.dialog_bounds = nil
+  end
   M.filter_text = M.plugin.preferences.filter_text or ""
   M.pending_filter_text = M.filter_text
   M.filter_mode = M.plugin.preferences.filter_mode or "All"

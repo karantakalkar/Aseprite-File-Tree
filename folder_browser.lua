@@ -528,8 +528,12 @@ local function create_dialog()
     onwheel = on_wheel
   }
 
-  local saved = core.plugin.preferences.bounds
-  if saved then core.dialog.bounds = saved end
+  local saved = core.dialog_bounds
+  if saved ~= nil then
+    core.dialog.bounds = Rectangle(saved.x, saved.y, saved.width, saved.height)
+  elseif core.plugin.preferences.bounds then
+    core.dialog.bounds = core.plugin.preferences.bounds
+  end
 
   core.dialog:show{ wait = false, autoscrollbars = false }
   core.refresh()
