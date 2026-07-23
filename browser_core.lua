@@ -1017,18 +1017,52 @@ function M.show_delete_dialog(row)
 end
 
 function M.copy_file(source, target)
-  -- Copy file bytes without opening the file in Aseprite.
-  local input = io.open(source, "rb")
-  if input == nil then return false, "could not read source file" end
+  -- Copy in small chunks so large files do not have to fit in Lua memory.
+  local input, input_error = io.open(source, "rb")
+  if input == nil then return false, input_error or "could not read source file" end
 
-  local data = input:read("*a")
+  local output, output_error = io.open(target, "wb")
+  if output == nil then
+    input:close()
+    return false, output_error or "could not write target file"
+  end
+
+  while true do
+    local read_ok, data = pcall(function()
+      return input:read(64 * 1024)
+    end)
+
+    if not read_ok then
+      input:close()
+      output:close()
+      os.remove(target)
+      return false, data
+    end
+
+    if data == nil then break end
+
+    local wrote, write_error = output:write(data)
+    if wrote == nil then
+      input:close()
+      output:close()
+      os.remove(target)
+      return false, write_error or "could not write target file"
+    end
+  end
+
   input:close()
 
-  local output = io.open(target, "wb")
-  if output == nil then return false, "could not write target file" end
+  local closed, close_error = output:close()
+  if closed == nil then
+    os.remove(target)
+    return false, close_error or "could not finish target file"
+  end
 
-  output:write(data)
-  output:close()
+  if app.fs.fileSize(source) ~= app.fs.fileSize(target) then
+    os.remove(target)
+    return false, "copied file size does not match source"
+  end
+
   return true
 end
 
