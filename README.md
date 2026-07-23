@@ -1,8 +1,7 @@
 # Aseprite File Tree
 
-| Light Theme | Dark Theme |
-|:-:|:-:|
-| ![Light](Images/Sample%20Light.png) | ![Dark](Images/Sample%20Black.png) |
+<img width="746" height="624" alt="Screenshot 2026-07-23 174501" src="https://github.com/user-attachments/assets/a464f117-7102-43cd-99ea-c071b15a51da" />
+
 
 ![Operations](Images/Operations.gif)
 
