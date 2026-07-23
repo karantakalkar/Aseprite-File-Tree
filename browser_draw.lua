@@ -21,6 +21,14 @@ function D.refresh_theme()
     tc.row_odd  = Color{ r = 240, g = 240, b = 240, a = 255 }
     tc.bg       = tc.row_even
     tc.section_bg = Color{ r = 230, g = 230, b = 230, a = 255 }
+    tc.tag_text = Color{ r = 35, g = 35, b = 35, a = 255 }
+    tc.tag_bg = {
+      red = Color{ r = 255, g = 200, b = 200, a = 255 },
+      green = Color{ r = 199, g = 235, b = 199, a = 255 },
+      blue = Color{ r = 195, g = 218, b = 255, a = 255 },
+      yellow = Color{ r = 250, g = 235, b = 160, a = 255 },
+      purple = Color{ r = 225, g = 199, b = 245, a = 255 }
+    }
   else
     -- Dark theme: darken window_face for inset rows.
     local d = 15
@@ -39,6 +47,14 @@ function D.refresh_theme()
       r = math.max(0, wf.red - 2),
       g = math.max(0, wf.green - 2),
       b = math.max(0, wf.blue - 2), a = 255
+    }
+    tc.tag_text = Color{ r = 245, g = 245, b = 245, a = 255 }
+    tc.tag_bg = {
+      red = Color{ r = 112, g = 46, b = 46, a = 255 },
+      green = Color{ r = 45, g = 92, b = 54, a = 255 },
+      blue = Color{ r = 44, g = 70, b = 112, a = 255 },
+      yellow = Color{ r = 105, g = 88, b = 34, a = 255 },
+      purple = Color{ r = 82, g = 50, b = 108, a = 255 }
     }
   end
 
@@ -115,6 +131,8 @@ local function paint_row(gc, row, idx, view_w)
   local is_sel = row.path == core.selected and not row.is_shortcut
   local is_hov = idx == core.hovered_idx
   local is_drop = core.drag_started and row.path == core.drag_target_path
+  local tag_name = core.color_tag_for_path(row.path)
+  local tag_bg = tag_name and tc.tag_bg[tag_name] or nil
   local exp = core.expanded_set()
   local base_text = tc.text
 
@@ -146,24 +164,26 @@ local function paint_row(gc, row, idx, view_w)
   if is_drop then gc.color = tc.drop_bg
   elseif is_sel then gc.color = tc.sel_bg
   elseif is_hov then gc.color = tc.hover_bg
+  elseif tag_bg then gc.color = tag_bg
   elseif idx % 2 == 0 then gc.color = tc.row_even
   else gc.color = tc.row_odd end
   gc:fillRect(Rectangle(0, y, view_w, core.ROW_H))
 
   if is_drop then base_text = tc.drop_text
   elseif is_sel then base_text = tc.sel_text
-  elseif is_hov then base_text = tc.hover_text end
+  elseif is_hov then base_text = tc.hover_text
+  elseif tag_bg then base_text = tc.tag_text end
 
   paint_tree_lines(gc, row, y)
 
   local ty = y + math.floor((core.ROW_H - font_h) / 2)
   if row.is_folder then
-    if is_drop or is_sel or is_hov then gc.color = base_text else gc.color = tc.tree_line end
+    if is_drop or is_sel or is_hov or tag_bg then gc.color = base_text else gc.color = tc.tree_line end
     gc:fillText(exp[row.path] and "v" or ">", x, ty)
   end
 
   local label_x = x + core.CHEVRON_W
-  if is_drop or is_sel or is_hov then gc.color = base_text
+  if is_drop or is_sel or is_hov or tag_bg then gc.color = base_text
   elseif row.is_folder then gc.color = tc.folder
   else gc.color = base_text end
 

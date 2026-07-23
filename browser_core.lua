@@ -17,6 +17,7 @@ M.h_scroll = 0
 M.history = {}
 M.favorites = {}
 M.pinned_root = ""
+M.color_tags = {}
 
 -- Search/filter state. pending_filter_text is used by the debounce timer.
 M.filter_text = ""
@@ -78,6 +79,7 @@ M.PREVIEW_MIN_W = 80
 M.PREVIEW_MIN_TREE_W = 130
 M.PREVIEW_GAP = 3
 M.PREVIEW_HANDLE_W = 7
+M.COLOR_TAG_OPTIONS = { "red", "green", "blue", "yellow", "purple" }
 
 -- Search index caches a flattened tree so text search can expose matching ancestors.
 M.search_matches = {}
@@ -109,6 +111,11 @@ end
 local function clean_list(list)
   -- Preferences can be absent or malformed; browser code always wants a table.
   if type(list) == "table" then return list end
+  return {}
+end
+
+local function clean_map(map)
+  if type(map) == "table" then return map end
   return {}
 end
 
@@ -234,6 +241,18 @@ local function write_favorites(file)
   for _, path in ipairs(M.favorites) do
     file:write("    ", quoted(path), ",\n")
   end
+  file:write("  },\n")
+end
+
+local function write_color_tags(file)
+  local paths = {}
+  for path in pairs(M.color_tags) do table.insert(paths, path) end
+  table.sort(paths)
+
+  file:write("  color_tags = {\n")
+  for _, path in ipairs(paths) do
+    file:write("    [", quoted(path), "] = ", quoted(M.color_tags[path]), ",\n")
+  end
   file:write("  }\n")
 end
 
@@ -302,6 +321,7 @@ function M.save_prefs()
   p.history = M.history
   p.favorites = M.favorites
   p.pinned_root = M.pinned_root
+  p.color_tags = M.color_tags
   p.filter_text = M.filter_text
   p.filter_mode = M.filter_mode
   p.preview_enabled = M.preview_enabled
@@ -319,6 +339,7 @@ function M.write_browser_settings()
     write_setting_line(file, "root_path", M.root_path)
     write_setting_line(file, "pinned_root", M.pinned_root)
     write_favorites(file)
+    write_color_tags(file)
     file:write("}\n")
     file:close()
   end
@@ -330,6 +351,7 @@ function M.save_browser_settings()
   p.root_path = M.root_path
   p.favorites = M.favorites
   p.pinned_root = M.pinned_root
+  p.color_tags = M.color_tags
   M.write_browser_settings()
 end
 
@@ -378,6 +400,7 @@ function M.init_root()
 
   M.favorites = clean_list(settings.favorites or M.plugin.preferences.favorites)
   M.pinned_root = settings.pinned_root or M.plugin.preferences.pinned_root or ""
+  M.color_tags = clean_map(settings.color_tags or M.plugin.preferences.color_tags)
   M.filter_text = M.plugin.preferences.filter_text or ""
   M.pending_filter_text = M.filter_text
   M.filter_mode = M.plugin.preferences.filter_mode or "All"
@@ -518,6 +541,30 @@ function M.toggle_favorite(path)
     table.insert(M.favorites, 1, path)
   end
   M.save_browser_settings()
+end
+
+function M.set_color_tag(path, color)
+  if color == nil then
+    M.color_tags[path] = nil
+  else
+    M.color_tags[path] = color
+  end
+  M.save_browser_settings()
+  if M.dialog then M.dialog:repaint() end
+end
+
+function M.color_tag_for_path(path)
+  local best_color = nil
+  local best_length = -1
+
+  for tagged_path, color in pairs(M.color_tags) do
+    if path_is_same_or_child(path, tagged_path) and #tagged_path > best_length then
+      best_color = color
+      best_length = #tagged_path
+    end
+  end
+
+  return best_color
 end
 
 local function mode_matches(item)
@@ -940,6 +987,12 @@ function M.update_renamed_paths(old_path, new_path, is_folder)
   M.selected = replace_path_prefix(M.selected, old_path, new_path)
   M.preview_path = replace_path_prefix(M.preview_path, old_path, new_path)
 
+  local next_tags = {}
+  for path, color in pairs(M.color_tags) do
+    next_tags[replace_path_prefix(path, old_path, new_path)] = color
+  end
+  M.color_tags = next_tags
+
   if is_folder then
     M.root_path = replace_path_prefix(M.root_path, old_path, new_path)
     M.pinned_root = replace_path_prefix(M.pinned_root, old_path, new_path)
@@ -964,6 +1017,12 @@ function M.clear_deleted_paths(path)
   if path_is_same_or_child(M.pinned_root, path) then M.pinned_root = "" end
   remove_path_prefixes(M.history, path)
   remove_path_prefixes(M.favorites, path)
+
+  local next_tags = {}
+  for tagged_path, color in pairs(M.color_tags) do
+    if not path_is_same_or_child(tagged_path, path) then next_tags[tagged_path] = color end
+  end
+  M.color_tags = next_tags
 
   local exp = M.expanded_set()
   local next_exp = {}
@@ -1650,6 +1709,14 @@ function M.open_context_menu(row, x, y)
     table.insert(items, { label = favorite_text, action = "favorite" })
   end
 
+  for _, color in ipairs(M.COLOR_TAG_OPTIONS) do
+    local label = "Color: " .. color:sub(1, 1):upper() .. color:sub(2)
+    table.insert(items, { label = label, action = "color_tag", color = color })
+  end
+  if M.color_tags[row.path] ~= nil then
+    table.insert(items, { label = "Clear Color", action = "clear_color_tag" })
+  end
+
   if row_is_folder(row) or not row.is_shortcut then
     table.insert(items, { label = "Rename", action = "rename" })
     table.insert(items, { label = "Delete", action = "delete" })
@@ -1727,6 +1794,10 @@ function M.run_context_action(item)
       M.toggle_favorite(row.path)
       M.refresh()
     end
+  elseif item.action == "color_tag" then
+    M.set_color_tag(row.path, item.color)
+  elseif item.action == "clear_color_tag" then
+    M.set_color_tag(row.path, nil)
   end
 
   return true

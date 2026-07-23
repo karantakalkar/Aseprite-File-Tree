@@ -53,6 +53,9 @@ The tree checks cached and expanded folders for external filesystem changes once
 - Drop an item on the Root row or empty tree space to move or copy it into the current root folder.
 - Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
 - **Right-click** a file or folder and choose "Delete" to permanently delete it after confirmation. Folder deletion is recursive.
+- Assign Red, Green, Blue, Yellow, or Purple row colors from a file or folder's right-click menu.
+- Folder colors cascade to all descendants. A directly tagged child uses its own color instead.
+- Color tags are stored locally and follow renamed or moved items.
 - Use **Preview** to show or hide the right-side preview pane. When preview is on, single-click a file to preview its first frame.
 - Drag the divider between the tree and preview pane to resize the preview. Hovering the divider switches to Aseprite's horizontal resize cursor.
 - The tree refreshes automatically after creating, renaming, or deleting files and folders.

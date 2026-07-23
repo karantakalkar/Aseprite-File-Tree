@@ -31,6 +31,7 @@ local function reset()
   fake.reset()
   fake.add_directory("/workspace")
   core.plugin.preferences.expanded = {}
+  core.color_tags = {}
 end
 
 local function test_directory_creation()
@@ -197,6 +198,26 @@ local function test_case_rename()
   expect(fake.read_file("/workspace/SPRITE.PNG") == "sprite", "renamed file is missing")
 end
 
+local function test_color_tags()
+  reset()
+  make_folder("/workspace/folder")
+  make_folder("/workspace/folder/child")
+
+  core.set_color_tag("/workspace/folder", "red")
+  expect(core.color_tag_for_path("/workspace/folder/child") == "red", "folder tag did not cascade")
+
+  core.set_color_tag("/workspace/folder/child", "blue")
+  expect(core.color_tag_for_path("/workspace/folder/child") == "blue", "child tag did not override")
+
+  core.update_renamed_paths("/workspace/folder", "/workspace/renamed", true)
+  expect(core.color_tag_for_path("/workspace/renamed") == "red", "rename lost folder tag")
+  expect(core.color_tag_for_path("/workspace/renamed/child") == "blue", "rename lost child tag")
+
+  core.clear_deleted_paths("/workspace/renamed")
+  expect(core.color_tag_for_path("/workspace/renamed") == nil, "delete kept folder tag")
+  expect(core.color_tag_for_path("/workspace/renamed/child") == nil, "delete kept child tag")
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -208,6 +229,7 @@ test_folder_merge()
 test_cut_fallback()
 test_drop_guards()
 test_case_rename()
+test_color_tags()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))
