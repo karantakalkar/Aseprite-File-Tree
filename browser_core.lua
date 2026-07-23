@@ -43,6 +43,7 @@ M.drag_start_y = 0
 M.drag_target_path = nil
 M.drag_target_idx = nil
 M.drag_copy = false
+M.drag_expand_path = nil
 
 -- Preview pane state. preview_image is an Aseprite Image rendered by browser_draw.lua.
 M.preview_enabled = false
@@ -1586,6 +1587,7 @@ function M.clear_file_drag()
   M.drag_target_path = nil
   M.drag_target_idx = nil
   M.drag_copy = false
+  M.drag_expand_path = nil
 end
 
 function M.rename_path(row, name)

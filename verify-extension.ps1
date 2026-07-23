@@ -77,7 +77,10 @@ foreach ($text in @(
     "File Tree",
     "Dialog",
     "browser_core",
-    "browser_draw"
+    "browser_draw",
+    "not is_left_button_down(ev)",
+    "schedule_folder_expansion",
+    "interval = 0.5"
 )) {
     if (-not $main.Contains($text)) {
         throw "folder_browser.lua is missing: $text"

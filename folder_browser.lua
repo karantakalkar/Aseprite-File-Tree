@@ -19,16 +19,26 @@ core.platform = load_mod("platform")
 -- Timers implement debounced search without blocking canvas repaint.
 local debounce_timer = nil
 local search_timer = nil
+local drag_expand_timer = nil
 
-local function stop_timers()
-  -- Stop search timers before closing or restarting debounce.
+local function stop_search_timers()
   if debounce_timer ~= nil and debounce_timer.isRunning then debounce_timer:stop() end
   if search_timer ~= nil and search_timer.isRunning then search_timer:stop() end
 end
 
+local function stop_drag_expand_timer()
+  if drag_expand_timer ~= nil and drag_expand_timer.isRunning then drag_expand_timer:stop() end
+  core.drag_expand_path = nil
+end
+
+local function stop_timers()
+  stop_search_timers()
+  stop_drag_expand_timer()
+end
+
 local function restart_filter_timer()
   -- Restart the debounce delay after each search text edit.
-  stop_timers()
+  stop_search_timers()
   debounce_timer:start()
 end
 
@@ -36,6 +46,12 @@ local function is_right_click(ev)
   -- Aseprite versions differ between MouseButton enum and numeric button values.
   if MouseButton ~= nil and ev.button == MouseButton.RIGHT then return true end
   return ev.button == 2
+end
+
+local function is_left_button_down(ev)
+  -- Mouse move events report the button that is still being held.
+  if MouseButton ~= nil and ev.button == MouseButton.LEFT then return true end
+  return ev.button == 1
 end
 
 local function in_v_scrollbar(x)
@@ -105,6 +121,7 @@ local function select_row(row)
 end
 
 local function begin_file_drag(row, ev)
+  if not is_left_button_down(ev) then return end
   if row.is_section or row.is_divider or row.is_root_info or row.is_shortcut then return end
   core.drag_source = row.path
   core.drag_row = row
@@ -113,10 +130,34 @@ local function begin_file_drag(row, ev)
   core.drag_start_y = ev.y
 end
 
+local function clear_file_drag()
+  stop_drag_expand_timer()
+  core.clear_file_drag()
+end
+
+local function schedule_folder_expansion(row, target)
+  local path = nil
+  if row ~= nil and row.is_folder and target ~= nil then
+    path = row.path
+  end
+
+  if core.drag_expand_path == path then return end
+  stop_drag_expand_timer()
+  if path == nil then return end
+
+  local expanded = core.expanded_set()
+  if expanded[path] then return end
+
+  core.drag_expand_path = path
+  drag_expand_timer:start()
+end
+
 local function update_file_drag(ev)
   if core.drag_source == nil then return false end
-  if not core.drag_pointer_down then
-    core.clear_file_drag()
+  if not core.drag_pointer_down or not is_left_button_down(ev) then
+    clear_file_drag()
+    core.set_resize_cursor(false)
+    core.dialog:repaint()
     return false
   end
 
@@ -153,14 +194,7 @@ local function update_file_drag(ev)
   core.drag_target_path = target
   core.drag_target_idx = idx
   core.set_drag_cursor(target ~= nil)
-
-  if row ~= nil and row.is_folder and target ~= nil then
-    local expanded = core.expanded_set()
-    if not expanded[row.path] then
-      expanded[row.path] = true
-      core.refresh()
-    end
-  end
+  schedule_folder_expansion(row, target)
 
   core.dialog:repaint()
   return true
@@ -334,7 +368,7 @@ local function on_mouseup()
   core.sb_dragging = false
   core.hsb_dragging = false
   core.preview_dragging = false
-  core.clear_file_drag()
+  clear_file_drag()
   core.set_resize_cursor(false)
 
   if should_drop then
@@ -354,7 +388,7 @@ local function on_mouseleave()
   core.sb_dragging = false
   core.hsb_dragging = false
   core.preview_dragging = false
-  core.clear_file_drag()
+  clear_file_drag()
   core.set_resize_cursor(false)
   if core.hovered_idx ~= nil then
     core.hovered_idx = nil
@@ -411,6 +445,25 @@ local function create_dialog()
     ontick = function()
       search_timer:stop()
       core.apply_pending_filter()
+    end
+  }
+
+  drag_expand_timer = Timer{
+    interval = 0.5,
+    ontick = function()
+      drag_expand_timer:stop()
+
+      local path = core.drag_expand_path
+      core.drag_expand_path = nil
+      if path == nil then return end
+      if not core.drag_pointer_down or not core.drag_started then return end
+      if core.drag_target_path ~= path then return end
+
+      local expanded = core.expanded_set()
+      if expanded[path] then return end
+
+      expanded[path] = true
+      core.refresh()
     end
   }
 

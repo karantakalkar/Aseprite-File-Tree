@@ -267,12 +267,14 @@ local function test_drag_state_cleanup()
   core.drag_row = { path = core.drag_source, is_folder = false }
   core.drag_pointer_down = true
   core.drag_started = true
+  core.drag_expand_path = "/workspace/folder"
 
   core.clear_file_drag()
   expect(core.drag_source == nil, "drag source was not cleared")
   expect(core.drag_row == nil, "drag row was not cleared")
   expect(not core.drag_pointer_down, "drag pointer state remained pressed")
   expect(not core.drag_started, "drag remained active")
+  expect(core.drag_expand_path == nil, "drag expansion target was not cleared")
 end
 
 test_directory_creation()

@@ -52,6 +52,7 @@ The tree checks cached and expanded folders for external filesystem changes once
 - **Right-click** a file or folder and choose "Rename" to rename it.
 - **Right-click** a file or folder and choose "Cut" or "Copy", then paste it into a folder or empty tree space.
 - **Drag** a file or folder onto another folder to move it. Hold **Ctrl** while dragging to copy it.
+- Keep the left mouse button held over a collapsed folder for 0.5 seconds to expand it while dragging.
 - Drop an item on the Root row or empty tree space to move or copy it into the current root folder.
 - Valid drag destinations use a cyan outline and a move cursor; invalid destinations use the blocked cursor.
 - Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
