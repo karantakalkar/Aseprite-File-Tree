@@ -31,6 +31,13 @@ M.context_hover = nil
 M.clipboard_path = nil
 M.clipboard_action = nil
 M.clipboard_is_folder = false
+M.drag_source = nil
+M.drag_started = false
+M.drag_start_x = 0
+M.drag_start_y = 0
+M.drag_target_path = nil
+M.drag_target_idx = nil
+M.drag_copy = false
 
 -- Preview pane state. preview_image is an Aseprite Image rendered by browser_draw.lua.
 M.preview_enabled = false
@@ -1399,6 +1406,66 @@ function M.paste_into(folder_path)
   M.save_browser_settings()
   M.refresh()
   return true
+end
+
+function M.can_drop_path(source, folder_path)
+  if not M.has(source) then return false end
+  if not M.has(folder_path) then return false end
+  if not app.fs.isDirectory(folder_path) then return false end
+  if app.fs.normalizePath(app.fs.filePath(source)) == app.fs.normalizePath(folder_path) then
+    return false
+  end
+  if app.fs.isDirectory(source) and path_is_same_or_child(folder_path, source) then
+    return false
+  end
+  return true
+end
+
+function M.drop_path_into(source, folder_path, copy)
+  if not M.can_drop_path(source, folder_path) then return false end
+
+  local target = app.fs.joinPath(folder_path, M.row_name(source))
+  local conflict = nil
+  local state = {}
+
+  if file_exists(target) then
+    conflict, state.apply_to_all = M.ask_paste_conflict(source, target)
+    if conflict == nil then return false end
+  end
+
+  local source_is_folder = app.fs.isDirectory(source)
+  local ok, result
+  if copy then
+    ok, result = M.copy_path_to_folder(source, folder_path, conflict, state)
+  else
+    ok, result = M.cut_path_to_folder(source, folder_path, conflict, state)
+  end
+
+  if not ok then
+    app.alert("Could not drop item: " .. tostring(result))
+    return false
+  end
+
+  if copy then
+    M.selected = result
+  else
+    M.update_renamed_paths(source, result, source_is_folder)
+  end
+
+  local expanded = M.expanded_set()
+  expanded[folder_path] = true
+  reset_cached_tree()
+  M.save_browser_settings()
+  M.refresh()
+  return true
+end
+
+function M.clear_file_drag()
+  M.drag_source = nil
+  M.drag_started = false
+  M.drag_target_path = nil
+  M.drag_target_idx = nil
+  M.drag_copy = false
 end
 
 function M.rename_path(row, name)

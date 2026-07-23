@@ -47,6 +47,8 @@ function D.refresh_theme()
   tc.sel_text = c.filelist_selected_row_text or Color{ r = 255, g = 255, b = 255 }
   tc.hover_bg = c.menuitem_highlight_face or Color{ r = 124, g = 144, b = 159 }
   tc.hover_text = c.menuitem_highlight_text or Color{ r = 255, g = 255, b = 255 }
+  tc.drop_bg = c.filelist_selected_row_face or tc.hover_bg
+  tc.drop_text = c.filelist_selected_row_text or tc.hover_text
   tc.folder = c.link_text or Color{ r = 44, g = 76, b = 145 }
   tc.dim = c.disabled or Color{ r = 150, g = 130, b = 117 }
   tc.tree_line = Color{ r = 118, g = 118, b = 118, a = 255 }
@@ -112,6 +114,7 @@ local function paint_row(gc, row, idx, view_w)
   local x = px + row.depth * core.INDENT - core.h_scroll
   local is_sel = row.path == core.selected and not row.is_shortcut
   local is_hov = idx == core.hovered_idx
+  local is_drop = core.drag_started and row.path == core.drag_target_path
   local exp = core.expanded_set()
   local base_text = tc.text
 
@@ -124,10 +127,13 @@ local function paint_row(gc, row, idx, view_w)
   end
 
   if row.is_root_info then
-    gc.color = tc.section_bg
+    local root_drop = core.drag_started and core.drag_target_path == core.root_path
+    gc.color = root_drop and tc.drop_bg or tc.section_bg
     gc:fillRect(Rectangle(0, y, view_w, core.ROW_H))
-    gc.color = tc.text
-    gc:fillText(row.name, px, y + math.floor((core.ROW_H - font_h) / 2))
+    gc.color = root_drop and tc.drop_text or tc.text
+    local text = root_drop and "Move to current root" or row.name
+    if root_drop and core.drag_copy then text = "Copy to current root" end
+    gc:fillText(text, px, y + math.floor((core.ROW_H - font_h) / 2))
     return
   end
 
@@ -137,25 +143,27 @@ local function paint_row(gc, row, idx, view_w)
     return
   end
 
-  if is_sel then gc.color = tc.sel_bg
+  if is_drop then gc.color = tc.drop_bg
+  elseif is_sel then gc.color = tc.sel_bg
   elseif is_hov then gc.color = tc.hover_bg
   elseif idx % 2 == 0 then gc.color = tc.row_even
   else gc.color = tc.row_odd end
   gc:fillRect(Rectangle(0, y, view_w, core.ROW_H))
 
-  if is_sel then base_text = tc.sel_text
+  if is_drop then base_text = tc.drop_text
+  elseif is_sel then base_text = tc.sel_text
   elseif is_hov then base_text = tc.hover_text end
 
   paint_tree_lines(gc, row, y)
 
   local ty = y + math.floor((core.ROW_H - font_h) / 2)
   if row.is_folder then
-    if is_sel or is_hov then gc.color = base_text else gc.color = tc.tree_line end
+    if is_drop or is_sel or is_hov then gc.color = base_text else gc.color = tc.tree_line end
     gc:fillText(exp[row.path] and "v" or ">", x, ty)
   end
 
   local label_x = x + core.CHEVRON_W
-  if is_sel or is_hov then gc.color = base_text
+  if is_drop or is_sel or is_hov then gc.color = base_text
   elseif row.is_folder then gc.color = tc.folder
   else gc.color = base_text end
 

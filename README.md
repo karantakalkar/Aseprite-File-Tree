@@ -42,6 +42,8 @@ Preview   Toggle the right-side file preview pane.
 - New files ask for a name and file type before they are created.
 - **Right-click** a file or folder and choose "Rename" to rename it.
 - **Right-click** a file or folder and choose "Cut" or "Copy", then paste it into a folder or empty tree space.
+- **Drag** a file or folder onto another folder to move it. Hold **Ctrl** while dragging to copy it.
+- Drop an item on the Root row or empty tree space to move or copy it into the current root folder.
 - Rename keeps the original file extension when you omit one, and uses a typed extension when you include one.
 - **Right-click** a file or folder and choose "Delete" to permanently delete it after confirmation. Folder deletion is recursive.
 - Use **Preview** to show or hide the right-side preview pane. When preview is on, single-click a file to preview its first frame.

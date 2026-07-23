@@ -102,6 +102,61 @@ local function select_row(row)
   core.save_prefs()
 end
 
+local function begin_file_drag(row, ev)
+  if row.is_section or row.is_divider or row.is_root_info or row.is_shortcut then return end
+  core.drag_source = row.path
+  core.drag_start_x = ev.x
+  core.drag_start_y = ev.y
+end
+
+local function update_file_drag(ev)
+  if core.drag_source == nil then return false end
+
+  if not core.drag_started then
+    local moved_x = math.abs(ev.x - core.drag_start_x)
+    local moved_y = math.abs(ev.y - core.drag_start_y)
+    if moved_x < 4 and moved_y < 4 then return false end
+    core.drag_started = true
+  end
+
+  core.drag_copy = ev.ctrlKey
+
+  if ev.y < core.ROW_H * 2 then
+    core.scroll = core.scroll - core.ROW_H
+  elseif ev.y > core.view_h() - core.ROW_H * 2 then
+    core.scroll = core.scroll + core.ROW_H
+  end
+  core.clamp_scroll()
+
+  local row, idx = core.row_at_y(ev.y)
+  local target = nil
+  if row == nil or row.is_root_info then
+    target = core.root_path
+    idx = nil
+  elseif row.is_folder or row.is_shortcut then
+    target = row.path
+  end
+
+  if not core.can_drop_path(core.drag_source, target) then
+    target = nil
+    idx = nil
+  end
+
+  core.drag_target_path = target
+  core.drag_target_idx = idx
+
+  if row ~= nil and row.is_folder and target ~= nil then
+    local expanded = core.expanded_set()
+    if not expanded[row.path] then
+      expanded[row.path] = true
+      core.refresh()
+    end
+  end
+
+  core.dialog:repaint()
+  return true
+end
+
 local function on_mousedown(ev)
   -- Ignore clicks outside canvas bounds.
   if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then return end
@@ -149,6 +204,7 @@ local function on_mousedown(ev)
 
   -- Left-click selection is the only click path that refreshes preview content.
   select_row(row)
+  begin_file_drag(row, ev)
 
   core.close_context_menu()
 
@@ -193,6 +249,8 @@ local function on_mousemove(ev)
     core.resize_preview_at(ev.x)
     return
   end
+
+  if update_file_drag(ev) then return end
 
   local over_divider = in_preview_divider(ev.x)
 
@@ -262,10 +320,22 @@ end
 
 local function on_mouseup()
   -- Release all drag modes on mouse up.
+  local source = core.drag_source
+  local target = core.drag_target_path
+  local copy = core.drag_copy
+  local should_drop = core.drag_started and target ~= nil
+
   core.sb_dragging = false
   core.hsb_dragging = false
   core.preview_dragging = false
+  core.clear_file_drag()
   core.set_resize_cursor(false)
+
+  if should_drop then
+    core.drop_path_into(source, target, copy)
+  elseif core.dialog then
+    core.dialog:repaint()
+  end
 end
 
 local function on_mouseleave()
@@ -273,6 +343,7 @@ local function on_mouseleave()
   core.sb_dragging = false
   core.hsb_dragging = false
   core.preview_dragging = false
+  core.clear_file_drag()
   core.set_resize_cursor(false)
   if core.hovered_idx ~= nil then
     core.hovered_idx = nil
