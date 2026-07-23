@@ -10,10 +10,13 @@ $watcherPath = Join-Path $root "filesystem_watcher.lua"
 $platformPath = Join-Path $root "platform.lua"
 $readmePath = Join-Path $root "README.md"
 $buildPath = Join-Path $root "build-extension.ps1"
+$testRunnerPath = Join-Path $root "run-tests.ps1"
+$filesystemTestsPath = Join-Path $root "tests\filesystem_tests.lua"
+$fakeFilesystemPath = Join-Path $root "tests\fake_filesystem.lua"
 $extensionPath = Join-Path $root "aseprite-file-tree.aseprite-extension"
 
 # Fail early when a required source/build file is missing.
-foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $watcherPath, $platformPath, $readmePath, $buildPath)) {
+foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $watcherPath, $platformPath, $readmePath, $buildPath, $testRunnerPath, $filesystemTestsPath, $fakeFilesystemPath)) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Missing required file: $path"
     }

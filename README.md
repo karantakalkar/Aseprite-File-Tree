@@ -16,6 +16,10 @@ A lightweight Aseprite extension that opens a floating file tree browser. It sho
 4. Add `aseprite-file-tree.aseprite-extension`.
 5. Restart Aseprite if the command does not appear immediately.
 
+## Verify
+
+Run `.\run-tests.ps1` for filesystem behavior tests, then `.\build-extension.ps1` and `.\verify-extension.ps1` for the packaged extension checks.
+
 ## Use
 
 Open `File Tree` from Aseprite's script/plugin menu. The root path defaults to the last saved path, then to Aseprite's user documents folder.
