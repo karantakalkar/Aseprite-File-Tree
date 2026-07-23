@@ -75,6 +75,7 @@ M.DEF_W = 195
 M.DEF_H = 300
 M.MENU_W = 148
 M.MENU_ROW_H = 16
+M.SUBMENU_W = 104
 M.PREVIEW_DEFAULT_W = 150
 M.PREVIEW_MIN_W = 80
 M.PREVIEW_MIN_TREE_W = 130
@@ -1743,13 +1744,15 @@ function M.open_context_menu(row, x, y)
     table.insert(items, { label = favorite_text, action = "favorite" })
   end
 
+  local color_items = {}
   for _, color in ipairs(M.COLOR_TAG_OPTIONS) do
-    local label = "Color: " .. color:sub(1, 1):upper() .. color:sub(2)
-    table.insert(items, { label = label, action = "color_tag", color = color })
+    local label = color:sub(1, 1):upper() .. color:sub(2)
+    table.insert(color_items, { label = label, action = "color_tag", color = color })
   end
   if M.color_tags[row.path] ~= nil then
-    table.insert(items, { label = "Clear Color", action = "clear_color_tag" })
+    table.insert(color_items, { label = "Clear Color", action = "clear_color_tag" })
   end
+  table.insert(items, { label = "Color Tag  >", submenu = { items = color_items } })
 
   if row_is_folder(row) or not row.is_shortcut then
     table.insert(items, { label = "Rename", action = "rename" })
@@ -1773,25 +1776,80 @@ function M.close_context_menu()
   -- Hide the custom context menu and clear hover state.
   M.context_menu = nil
   M.context_hover = nil
+  M.context_submenu_hover = nil
 end
 
 function M.context_item_at(x, y, return_index)
   -- Hit-test the custom context menu drawn on the canvas.
   local menu = M.context_menu
   if menu == nil then return nil end
+
+  local submenu = menu.submenu
+  if submenu ~= nil and submenu.open then
+    local submenu_x = submenu.draw_x
+    local submenu_y = submenu.draw_y
+    local submenu_h = #submenu.items * M.MENU_ROW_H
+    if submenu_x ~= nil and x >= submenu_x and x <= submenu_x + M.SUBMENU_W
+      and y >= submenu_y and y <= submenu_y + submenu_h then
+      local idx = math.floor((y - submenu_y) / M.MENU_ROW_H) + 1
+      if return_index then return submenu.items[idx], idx, "submenu" end
+      return submenu.items[idx]
+    end
+  end
+
   local menu_x = menu.draw_x or menu.x
   local menu_y = menu.draw_y or menu.y
   if x < menu_x or x > menu_x + M.MENU_W then return nil end
   if y < menu_y or y > menu_y + (#menu.items * M.MENU_ROW_H) then return nil end
   local idx = math.floor((y - menu_y) / M.MENU_ROW_H) + 1
-  if return_index then return menu.items[idx], idx end
+  if return_index then return menu.items[idx], idx, "main" end
   return menu.items[idx]
+end
+
+function M.update_context_hover(x, y)
+  local menu = M.context_menu
+  if menu == nil then return false end
+
+  local item, idx, area = M.context_item_at(x, y, true)
+  local old_main = M.context_hover
+  local old_submenu = M.context_submenu_hover
+  local old_open = menu.submenu ~= nil and menu.submenu.open
+
+  if area == "submenu" then
+    M.context_hover = menu.submenu.parent_index
+    M.context_submenu_hover = idx
+  elseif area == "main" then
+    M.context_hover = idx
+    M.context_submenu_hover = nil
+
+    if item ~= nil and item.submenu ~= nil then
+      menu.submenu = item.submenu
+      menu.submenu.parent_index = idx
+      menu.submenu.open = true
+    elseif menu.submenu ~= nil then
+      menu.submenu.open = false
+    end
+  else
+    M.context_hover = nil
+    M.context_submenu_hover = nil
+  end
+
+  local new_open = menu.submenu ~= nil and menu.submenu.open
+  return old_main ~= M.context_hover
+    or old_submenu ~= M.context_submenu_hover
+    or old_open ~= new_open
 end
 
 function M.run_context_action(item)
   -- Execute the selected context-menu action.
   local menu = M.context_menu
   if item == nil or menu == nil then return false end
+  if item.submenu ~= nil then
+    menu.submenu = item.submenu
+    menu.submenu.open = true
+    if M.dialog then M.dialog:repaint() end
+    return true
+  end
   local row = menu.row
   M.close_context_menu()
 

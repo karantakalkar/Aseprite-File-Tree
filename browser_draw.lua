@@ -279,6 +279,48 @@ local function paint_context_menu(gc)
     gc.color = tc.menu_text
     gc:fillText(item.label, x + 6, y + ((i - 1) * core.MENU_ROW_H) + 4)
   end
+
+  local submenu = menu.submenu
+  if submenu == nil or not submenu.open then return end
+
+  local submenu_h = #submenu.items * core.MENU_ROW_H
+  local submenu_x = x + core.MENU_W
+  local submenu_y = y + ((submenu.parent_index - 1) * core.MENU_ROW_H)
+
+  if submenu_x + core.SUBMENU_W > core.tree_w() then
+    submenu_x = x - core.SUBMENU_W
+  end
+  if submenu_x < 0 then
+    submenu_x = math.min(x + 20, core.tree_w() - core.SUBMENU_W)
+    submenu_y = submenu_y + core.MENU_ROW_H
+  end
+  if submenu_y + submenu_h > gc.height then submenu_y = gc.height - submenu_h - 1 end
+  if submenu_y < 0 then submenu_y = 0 end
+
+  submenu.draw_x = submenu_x
+  submenu.draw_y = submenu_y
+
+  gc.color = tc.menu_bg
+  gc:fillRect(Rectangle(submenu_x, submenu_y, core.SUBMENU_W, submenu_h))
+  gc.color = tc.menu_border
+  gc:strokeRect(Rectangle(submenu_x, submenu_y, core.SUBMENU_W, submenu_h))
+
+  for i, item in ipairs(submenu.items) do
+    local item_y = submenu_y + ((i - 1) * core.MENU_ROW_H)
+    if i == core.context_submenu_hover then
+      gc.color = tc.menu_hover
+      gc:fillRect(Rectangle(submenu_x + 1, item_y + 1, core.SUBMENU_W - 2, core.MENU_ROW_H - 2))
+    end
+
+    local text_x = submenu_x + 6
+    if item.color ~= nil then
+      gc.color = tc.tag_bg[item.color]
+      gc:fillRect(Rectangle(submenu_x + 5, item_y + 4, 8, 8))
+      text_x = submenu_x + 18
+    end
+    gc.color = tc.menu_text
+    gc:fillText(item.label, text_x, item_y + 4)
+  end
 end
 
 local function preview_rect()

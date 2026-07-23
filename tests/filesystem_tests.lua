@@ -235,6 +235,32 @@ local function test_expand_collapse_all()
   expect(core.expanded_set()["/workspace/one/two"] == nil, "collapse all kept nested folder")
 end
 
+local function test_color_submenu()
+  reset()
+  fake.add_file("/workspace/item.png", "item")
+  core.dialog = { repaint = function() end }
+
+  core.open_context_menu({
+    path = "/workspace/item.png",
+    name = "item.png",
+    is_folder = false
+  }, 10, 10)
+
+  local color_menu = nil
+  for _, item in ipairs(core.context_menu.items) do
+    if item.submenu ~= nil then color_menu = item end
+  end
+
+  expect(color_menu ~= nil, "color submenu is missing")
+  expect(#color_menu.submenu.items == 5, "color submenu has unexpected options")
+  expect(core.run_context_action(color_menu), "color submenu did not open")
+  expect(core.context_menu ~= nil, "opening submenu closed the context menu")
+
+  core.run_context_action(color_menu.submenu.items[1])
+  expect(core.color_tags["/workspace/item.png"] == "red", "submenu did not assign color")
+  core.dialog = nil
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -248,6 +274,7 @@ test_drop_guards()
 test_case_rename()
 test_color_tags()
 test_expand_collapse_all()
+test_color_submenu()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

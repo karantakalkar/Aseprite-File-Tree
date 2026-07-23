@@ -274,11 +274,7 @@ local function on_mousemove(ev)
 
   -- When a context menu is open, mouse movement only updates menu hover.
   if core.context_menu ~= nil then
-    local _, idx = core.context_item_at(ev.x, ev.y, true)
-    if core.context_hover ~= idx then
-      core.context_hover = idx
-      core.dialog:repaint()
-    end
+    if core.update_context_hover(ev.x, ev.y) then core.dialog:repaint() end
     return
   end
 
