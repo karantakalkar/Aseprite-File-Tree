@@ -215,8 +215,8 @@ foreach ($text in @(
 }
 
 # Keep release version fixed unless the package metadata is intentionally bumped.
-if ($package.version -ne "0.2.0") {
-    throw "package.json version must be 0.2.0"
+if ($package.version -ne "0.3.0") {
+    throw "package.json version must be 0.3.0"
 }
 
 # Verify the built extension exists before inspecting archive contents.
