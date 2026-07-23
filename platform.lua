@@ -28,9 +28,9 @@ end
 function P.reveal(path)
   if app.os.windows then
     if app.fs.isDirectory(path) then
-      return command_succeeded("explorer.exe " .. windows_quote(path))
+      return command_succeeded('start "" explorer.exe ' .. windows_quote(path))
     end
-    return command_succeeded("explorer.exe /select," .. windows_quote(path))
+    return command_succeeded('start "" explorer.exe /select,' .. windows_quote(path))
   end
 
   if app.os.macos then

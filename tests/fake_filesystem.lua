@@ -2,7 +2,8 @@
 
 local F = {
   entries = {},
-  fail_writes = {}
+  fail_writes = {},
+  executed_commands = {}
 }
 
 local function normalize(path)
@@ -38,6 +39,7 @@ function F.reset()
     ["/"] = { kind = "directory" }
   }
   F.fail_writes = {}
+  F.executed_commands = {}
 end
 
 function F.add_directory(path)
@@ -168,6 +170,11 @@ function fake_os.remove(path)
   local clean = normalize(path)
   if not fake_fs.isFile(clean) then return nil, "remove failed" end
   F.entries[clean] = nil
+  return true
+end
+
+function fake_os.execute(command)
+  table.insert(F.executed_commands, command)
   return true
 end
 

@@ -5,10 +5,12 @@ local tests_path = app.fs.filePath(script_path)
 local repo_path = app.fs.filePath(tests_path)
 local fake_path = app.fs.joinPath(tests_path, "fake_filesystem.lua")
 local core_path = app.fs.joinPath(repo_path, "browser_core.lua")
+local platform_path = app.fs.joinPath(repo_path, "platform.lua")
 
 local fake = assert(loadfile(fake_path))()
 local environment = fake.environment()
 local core = assert(loadfile(core_path, "t", environment))()
+local platform = assert(loadfile(platform_path, "t", environment))()
 
 core.plugin = { preferences = { expanded = {} } }
 core.save_browser_settings = function() end
@@ -277,6 +279,23 @@ local function test_drag_state_cleanup()
   expect(core.drag_expand_path == nil, "drag expansion target was not cleared")
 end
 
+local function test_windows_reveal_uses_shell_launch()
+  reset()
+  fake.add_file("/workspace/item.png", "content")
+
+  expect(platform.reveal("/workspace"), "folder reveal failed")
+  expect(
+    fake.executed_commands[1] == 'start "" explorer.exe "/workspace"',
+    "folder reveal did not use an asynchronous Explorer launch"
+  )
+
+  expect(platform.reveal("/workspace/item.png"), "file reveal failed")
+  expect(
+    fake.executed_commands[2] == 'start "" explorer.exe /select,"/workspace/item.png"',
+    "file reveal did not use an asynchronous Explorer launch"
+  )
+end
+
 test_directory_creation()
 test_chunked_file_copy()
 test_failed_write_cleanup()
@@ -292,6 +311,7 @@ test_color_tags()
 test_expand_collapse_all()
 test_color_submenu()
 test_drag_state_cleanup()
+test_windows_reveal_uses_shell_launch()
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

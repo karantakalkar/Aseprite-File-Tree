@@ -87,6 +87,10 @@ foreach ($text in @(
     }
 }
 
+if (-not $platform.Contains('start "" explorer.exe')) {
+    throw "Windows reveal must launch Explorer asynchronously"
+}
+
 # Core feature checks cover browsing, filtering, context actions, creation, preview, and delete.
 foreach ($text in @(
     "app.fs.listFiles",
