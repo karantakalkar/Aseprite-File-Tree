@@ -13,6 +13,7 @@ end
 
 local core = load_mod("browser_core")
 local draw = load_mod("browser_draw", core)
+local watcher = load_mod("filesystem_watcher", core)
 
 -- Timers implement debounced search without blocking canvas repaint.
 local debounce_timer = nil
@@ -378,6 +379,7 @@ local function create_dialog()
     onclose = function()
       -- Persist dialog state when the floating window closes.
       stop_timers()
+      watcher:stop()
       core.save_prefs()
       core.dialog = nil
     end
@@ -467,6 +469,7 @@ local function create_dialog()
 
   core.dialog:show{ wait = false, autoscrollbars = false }
   core.refresh()
+  watcher:start()
 end
 
 local function toggle_browser()
@@ -493,6 +496,7 @@ end
 function exit(plugin)
   -- Clean up timers and save state when Aseprite unloads the extension.
   stop_timers()
+  watcher:stop()
   if core.dialog then
     core.save_prefs()
     core.dialog:close()

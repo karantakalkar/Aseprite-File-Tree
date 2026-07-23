@@ -803,6 +803,19 @@ function M.rescan()
   M.refresh()
 end
 
+function M.invalidate_folders(paths)
+  for _, path in ipairs(paths) do
+    M.file_cache[path] = nil
+  end
+  M.search_index = {}
+  M.search_index_root = nil
+
+  if M.preview_enabled and M.has(M.preview_path) and app.fs.isFile(M.preview_path) then
+    M.load_preview(M.preview_path)
+  end
+  M.refresh()
+end
+
 function M.make_directory(path)
   local call_ok, created = pcall(function()
     return app.fs.makeDirectory(path)

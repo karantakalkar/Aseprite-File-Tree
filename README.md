@@ -31,6 +31,8 @@ Rescan    Reload folder contents.
 Preview   Toggle the right-side file preview pane.
 ```
 
+The tree checks cached and expanded folders for external filesystem changes once per second. Rescan remains available as a full manual refresh.
+
 ### Mouse Interactions
 
 - **Single-click** a folder to expand or collapse it.
