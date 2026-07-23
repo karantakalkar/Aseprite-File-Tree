@@ -1124,13 +1124,10 @@ function M.copy_folder_transaction(source, target)
   return false, err
 end
 
-function M.copy_path_to_folder(source, target)
-  -- Copy either a file or folder into the destination folder.
-  local target_path = app.fs.joinPath(target, M.row_name(source))
+function M.copy_path_to_target(source, target_path)
   if file_exists(target_path) then return false, "target already exists" end
-
   if app.fs.isDirectory(source) then
-    if path_is_same_or_child(target, source) then
+    if path_is_same_or_child(app.fs.filePath(target_path), source) then
       return false, "cannot copy a folder inside itself"
     end
 
@@ -1138,35 +1135,205 @@ function M.copy_path_to_folder(source, target)
     if not ok then return false, err end
     return true, target_path
   end
+
   local ok, err = M.copy_file_transaction(source, target_path)
   if not ok then return false, err end
   return true, target_path
 end
 
-function M.cut_path_to_folder(source, target)
-  -- Move a file/folder into the destination folder; copy/delete is the fallback.
+local function keep_both_path(path)
+  local parent = app.fs.filePath(path)
+  local name = app.fs.fileName(path)
+  local extension = app.fs.fileExtension(name)
+  local title = name
+  local suffix = ""
+
+  if M.has(extension) then
+    title = name:sub(1, #name - #extension - 1)
+    suffix = "." .. extension
+  end
+
+  local candidate = app.fs.joinPath(parent, title .. " copy" .. suffix)
+  local number = 2
+  while file_exists(candidate) do
+    candidate = app.fs.joinPath(parent, title .. " copy " .. number .. suffix)
+    number = number + 1
+  end
+  return candidate
+end
+
+local function remove_path(path)
+  if app.fs.isDirectory(path) then return M.delete_folder(path) end
+  return os.remove(path)
+end
+
+local function swap_staged_path(staged, target)
+  local backup = temporary_copy_path(target .. ".backup")
+  local ok, err = os.rename(target, backup)
+  if not ok then return false, err end
+
+  ok, err = os.rename(staged, target)
+  if not ok then
+    os.rename(backup, target)
+    return false, err
+  end
+
+  remove_path(backup)
+  return true
+end
+
+function M.replace_path(source, target)
+  local staged = temporary_copy_path(target)
+  local ok, err
+
+  if app.fs.isDirectory(source) then
+    ok, err = M.copy_folder(source, staged)
+  else
+    ok, err = M.copy_file(source, staged)
+  end
+
+  if not ok then return false, err end
+
+  ok, err = swap_staged_path(staged, target)
+  if ok then return true, target end
+
+  remove_path(staged)
+  return false, err
+end
+
+function M.ask_paste_conflict(source, target)
+  local source_is_folder = app.fs.isDirectory(source)
+  local target_is_folder = app.fs.isDirectory(target)
+  local can_merge = source_is_folder and target_is_folder
+  local action = nil
+  local apply_to_all = false
+  local dialog = Dialog{ title = can_merge and "Folder Exists" or "File Exists" }
+
+  dialog:label{ text = "An item with this name already exists:" }
+  dialog:label{ text = M.short_path(target) }
+  dialog:check{ id = "apply_all", text = "Apply to all conflicts" }
+
+  if can_merge then
+    dialog:button{
+      text = "Merge",
+      onclick = function()
+        action = "merge"
+        apply_to_all = dialog.data.apply_all
+        dialog:close()
+      end
+    }
+  elseif app.fs.normalizePath(source) ~= app.fs.normalizePath(target) then
+    dialog:button{
+      text = "Replace",
+      onclick = function()
+        action = "replace"
+        apply_to_all = dialog.data.apply_all
+        dialog:close()
+      end
+    }
+  end
+
+  dialog:button{
+    text = "Keep Both",
+    onclick = function()
+      action = "keep_both"
+      apply_to_all = dialog.data.apply_all
+      dialog:close()
+    end
+  }
+  dialog:button{ text = "Cancel", onclick = function() dialog:close() end }
+  dialog:show{ wait = true }
+  return action, apply_to_all
+end
+
+local function conflict_action(source, target, state)
+  if state.child_action ~= nil then return state.child_action end
+
+  local action, apply_to_all = M.ask_paste_conflict(source, target)
+  if apply_to_all then state.child_action = action end
+  return action
+end
+
+function M.merge_folder(source, target, state)
+  for _, name in ipairs(app.fs.listFiles(source)) do
+    local child_source = app.fs.joinPath(source, name)
+    local child_target = app.fs.joinPath(target, name)
+
+    if not file_exists(child_target) then
+      local ok, err = M.copy_path_to_target(child_source, child_target)
+      if not ok then return false, err end
+    elseif app.fs.isDirectory(child_source) and app.fs.isDirectory(child_target) then
+      local ok, err = M.merge_folder(child_source, child_target, state)
+      if not ok then return false, err end
+    else
+      local action = conflict_action(child_source, child_target, state)
+      if action == nil then return false, "paste cancelled" end
+
+      if action == "replace" then
+        local ok, err = M.replace_path(child_source, child_target)
+        if not ok then return false, err end
+      elseif action == "keep_both" then
+        local ok, err = M.copy_path_to_target(child_source, keep_both_path(child_target))
+        if not ok then return false, err end
+      end
+    end
+  end
+
+  return true
+end
+
+function M.merge_folder_transaction(source, target, state)
+  local staged = temporary_copy_path(target)
+  local ok, err = M.copy_folder(target, staged)
+  if not ok then return false, err end
+
+  ok, err = M.merge_folder(source, staged, state)
+  if not ok then
+    M.delete_folder(staged)
+    return false, err
+  end
+
+  ok, err = swap_staged_path(staged, target)
+  if ok then return true, target end
+
+  M.delete_folder(staged)
+  return false, err
+end
+
+function M.copy_path_to_folder(source, target, action, state)
   local target_path = app.fs.joinPath(target, M.row_name(source))
-  if file_exists(target_path) then return false, "target already exists" end
+  if not file_exists(target_path) then return M.copy_path_to_target(source, target_path) end
+
+  if action == "keep_both" then
+    return M.copy_path_to_target(source, keep_both_path(target_path))
+  end
+
+  if action == "replace" then return M.replace_path(source, target_path) end
+  if action == "merge" then return M.merge_folder_transaction(source, target_path, state) end
+  return false, "target already exists"
+end
+
+function M.cut_path_to_folder(source, target, action, state)
+  -- Move directly when possible; otherwise copy safely before deleting the source.
+  local target_path = app.fs.joinPath(target, M.row_name(source))
 
   if app.fs.isDirectory(source) and path_is_same_or_child(target, source) then
     return false, "cannot paste a folder inside itself"
   end
 
-  local ok = os.rename(source, target_path)
-  if ok then return true, target_path end
-
-  ok = nil
-  local err = nil
-  if app.fs.isDirectory(source) then
-    ok, err = M.copy_folder_transaction(source, target_path)
-    if ok then ok, err = M.delete_folder(source) end
-  else
-    ok, err = M.copy_file_transaction(source, target_path)
-    if ok then ok, err = os.remove(source) end
+  if not file_exists(target_path) then
+    local ok = os.rename(source, target_path)
+    if ok then return true, target_path end
   end
 
-  if not ok then return false, err end
-  return true, target_path
+  local ok, result = M.copy_path_to_folder(source, target, action, state)
+  if not ok then return false, result end
+
+  local removed, remove_error = remove_path(source)
+  if not removed then
+    return false, "copied item but could not remove source: " .. tostring(remove_error)
+  end
+  return true, result
 end
 
 function M.set_clipboard(row, action)
@@ -1191,13 +1358,22 @@ function M.paste_into(folder_path)
 
   local source = M.clipboard_path
   local action = M.clipboard_action
+  local target = app.fs.joinPath(folder_path, M.row_name(source))
+  local conflict = nil
+  local state = {}
+
+  if file_exists(target) then
+    conflict, state.apply_to_all = M.ask_paste_conflict(source, target)
+    if conflict == nil then return false end
+  end
+
   local ok = nil
   local result = nil
 
   if action == "cut" then
-    ok, result = M.cut_path_to_folder(source, folder_path)
+    ok, result = M.cut_path_to_folder(source, folder_path, conflict, state)
   else
-    ok, result = M.copy_path_to_folder(source, folder_path)
+    ok, result = M.copy_path_to_folder(source, folder_path, conflict, state)
   end
 
   if not ok then
