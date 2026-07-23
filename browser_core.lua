@@ -1411,7 +1411,37 @@ function M.rename_path(row, name)
 
   local old_path = row.path
   local new_path = app.fs.joinPath(app.fs.filePath(old_path), clean_name)
-  if app.fs.normalizePath(old_path) == app.fs.normalizePath(new_path) then return true end
+  local normalized_old = app.fs.normalizePath(old_path)
+  local normalized_new = app.fs.normalizePath(new_path)
+  if normalized_old == normalized_new then return true end
+
+  local case_only = (app.os.windows or app.os.macos)
+    and lo(normalized_old) == lo(normalized_new)
+
+  if case_only then
+    local temporary = temporary_copy_path(old_path .. ".rename")
+    local moved, move_error = os.rename(old_path, temporary)
+    if not moved then
+      app.alert("Could not rename: " .. tostring(move_error))
+      return false
+    end
+
+    moved, move_error = os.rename(temporary, new_path)
+    if not moved then
+      os.rename(temporary, old_path)
+      app.alert("Could not rename: " .. tostring(move_error))
+      return false
+    end
+
+    M.update_renamed_paths(old_path, new_path, row_is_folder(row))
+    if M.preview_enabled and M.selected == new_path and app.fs.isFile(new_path) then
+      M.load_preview(new_path)
+    end
+    reset_cached_tree()
+    M.save_browser_settings()
+    M.refresh()
+    return true
+  end
 
   if file_exists(new_path) then
     app.alert("A file or folder with that name already exists.")
