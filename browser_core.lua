@@ -1079,10 +1079,49 @@ function M.copy_folder(source, target)
     else
       ok, err = M.copy_file(child_source, child_target)
     end
-    if not ok then return false, err end
+    if not ok then
+      M.delete_folder(target)
+      return false, err
+    end
   end
 
   return true
+end
+
+local function temporary_copy_path(target)
+  local candidate = target .. ".aseprite-file-tree-copy"
+  local number = 2
+
+  while file_exists(candidate) do
+    candidate = target .. ".aseprite-file-tree-copy-" .. number
+    number = number + 1
+  end
+
+  return candidate
+end
+
+function M.copy_file_transaction(source, target)
+  local temporary = temporary_copy_path(target)
+  local ok, err = M.copy_file(source, temporary)
+  if not ok then return false, err end
+
+  ok, err = os.rename(temporary, target)
+  if ok then return true end
+
+  os.remove(temporary)
+  return false, err
+end
+
+function M.copy_folder_transaction(source, target)
+  local temporary = temporary_copy_path(target)
+  local ok, err = M.copy_folder(source, temporary)
+  if not ok then return false, err end
+
+  ok, err = os.rename(temporary, target)
+  if ok then return true end
+
+  M.delete_folder(temporary)
+  return false, err
 end
 
 function M.copy_path_to_folder(source, target)
@@ -1091,11 +1130,15 @@ function M.copy_path_to_folder(source, target)
   if file_exists(target_path) then return false, "target already exists" end
 
   if app.fs.isDirectory(source) then
-    local ok, err = M.copy_folder(source, target_path)
+    if path_is_same_or_child(target, source) then
+      return false, "cannot copy a folder inside itself"
+    end
+
+    local ok, err = M.copy_folder_transaction(source, target_path)
     if not ok then return false, err end
     return true, target_path
   end
-  local ok, err = M.copy_file(source, target_path)
+  local ok, err = M.copy_file_transaction(source, target_path)
   if not ok then return false, err end
   return true, target_path
 end
@@ -1115,10 +1158,10 @@ function M.cut_path_to_folder(source, target)
   ok = nil
   local err = nil
   if app.fs.isDirectory(source) then
-    ok, err = M.copy_folder(source, target_path)
+    ok, err = M.copy_folder_transaction(source, target_path)
     if ok then ok, err = M.delete_folder(source) end
   else
-    ok, err = M.copy_file(source, target_path)
+    ok, err = M.copy_file_transaction(source, target_path)
     if ok then ok, err = os.remove(source) end
   end
 
