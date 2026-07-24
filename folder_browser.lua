@@ -12,7 +12,9 @@ local function load_mod(name, ...)
 end
 
 local core = load_mod("browser_core")
-local draw = load_mod("browser_draw", core)
+local ref_viewer = load_mod("ref_viewer")
+core.ref_viewer = ref_viewer
+local draw = load_mod("browser_draw", core, ref_viewer)
 local watcher = load_mod("filesystem_watcher", core)
 core.platform = load_mod("platform")
 
@@ -63,6 +65,25 @@ local function is_left_button_down(ev)
   -- Mouse move events report the button that is still being held.
   if MouseButton ~= nil and ev.button == MouseButton.LEFT then return true end
   return ev.button == 1
+end
+
+local function is_middle_button_down(ev)
+  -- Match Aseprite's normal middle-mouse canvas panning gesture.
+  if MouseButton ~= nil and ev.button == MouseButton.MIDDLE then return true end
+  return ev.button == 3
+end
+
+local function update_ref_cursor()
+  if MouseCursor == nil then return end
+  if not core.is_ref_mode() then
+    core.set_tree_cursor(MouseCursor.ARROW)
+  elseif ref_viewer.drag_mode == "pan" then
+    core.set_tree_cursor(MouseCursor.GRABBING)
+  elseif ref_viewer.pick_mode ~= nil or ref_viewer.crop_mode then
+    core.set_tree_cursor(MouseCursor.CROSSHAIR)
+  else
+    core.set_tree_cursor(MouseCursor.ARROW)
+  end
 end
 
 local function in_v_scrollbar(x)
@@ -124,11 +145,8 @@ local function on_h_sb_click(x, y)
 end
 
 local function select_row(row)
-  -- Select real tree rows and refresh preview when needed.
-  if row == nil or row.is_section or row.is_divider or row.is_shortcut then return end
-  core.selected = row.path
-  core.preview_row(row)
-  core.save_prefs()
+  -- Single-click selection updates the shared Path field and active preview.
+  core.select_path(row)
 end
 
 local function begin_file_drag(row, ev)
@@ -215,6 +233,23 @@ local function on_mousedown(ev)
   -- Ignore clicks outside canvas bounds.
   if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then return end
 
+  if core.is_ref_mode() then
+    if not is_right_click(ev) then
+      ref_viewer.mousedown(
+        ev.x,
+        ev.y,
+        ev.ctrlKey,
+        ev.shiftKey,
+        is_middle_button_down(ev),
+        core.canvas_w,
+        core.canvas_h
+      )
+      update_ref_cursor()
+      core.dialog:repaint()
+    end
+    return
+  end
+
   -- Context menu clicks are handled before tree/scrollbar hit tests.
   local menu_item = core.context_item_at(ev.x, ev.y)
   if core.run_context_action(menu_item) then return end
@@ -273,6 +308,7 @@ end
 local function on_dblclick(ev)
   -- Ignore clicks outside canvas bounds.
   if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then return end
+  if core.is_ref_mode() then return end
   if in_preview_pane(ev.x) then return end
   if in_v_scrollbar(ev.x) or in_h_scrollbar(ev.y) then return end
   local row = core.row_at_y(ev.y)
@@ -294,6 +330,18 @@ local function on_dblclick(ev)
 end
 
 local function on_mousemove(ev)
+  if core.is_ref_mode() then
+    ref_viewer.mousemove(
+      ev.x,
+      ev.y,
+      is_left_button_down(ev),
+      is_middle_button_down(ev)
+    )
+    update_ref_cursor()
+    if core.dialog then core.dialog:repaint() end
+    return
+  end
+
   -- Resizing preview is continuous while the mouse is held down.
   if core.preview_dragging then
     core.set_resize_cursor(true)
@@ -366,6 +414,13 @@ local function on_mousemove(ev)
 end
 
 local function on_mouseup()
+  if core.is_ref_mode() then
+    ref_viewer.mouseup()
+    update_ref_cursor()
+    if core.dialog then core.dialog:repaint() end
+    return
+  end
+
   -- Release all drag modes on mouse up.
   local source = core.drag_source
   local clicked_row = core.drag_row
@@ -395,6 +450,12 @@ local function on_mouseup()
 end
 
 local function on_mouseleave()
+  if core.is_ref_mode() then
+    ref_viewer.mouseleave()
+    update_ref_cursor()
+    return
+  end
+
   -- Clear hover when cursor leaves the canvas area.
   core.sb_dragging = false
   core.hsb_dragging = false
@@ -409,6 +470,12 @@ local function on_mouseleave()
 end
 
 local function on_wheel(ev)
+  if core.is_ref_mode() then
+    ref_viewer.wheel(ev.x, ev.y, ev.deltaY, core.canvas_w, core.canvas_h)
+    core.dialog:repaint()
+    return
+  end
+
   -- Wheel scrolls vertically, shift+wheel scrolls horizontally.
   if in_preview_pane(ev.x) then return end
   if ev.shiftKey then
@@ -492,6 +559,7 @@ local function create_dialog()
     label = "",
     text = core.path_draft,
     onchange = function()
+      if core.path_entry_syncing then return end
       core.set_path_draft(core.dialog.data.root_entry)
       restart_path_timer()
     end
@@ -527,7 +595,14 @@ local function create_dialog()
   core.dialog:button{ id = "b_sprite", text = "Sprite", onclick = core.nav_sprite }
   core.dialog:button{ id = "b_root", text = "Root", enabled = core.has(core.pinned_root), onclick = core.nav_root_selected }
   core.dialog:button{ id = "b_expand_all", text = "Expand All", onclick = core.toggle_all_folders }
-  core.dialog:button{ id = "b_preview", text = "Preview: Off", onclick = core.toggle_preview }
+  core.dialog:button{
+    id = "b_preview",
+    text = "Preview: Off",
+    onclick = function()
+      core.cycle_preview_mode()
+      update_ref_cursor()
+    end
+  }
 
   core.dialog:separator{}
 

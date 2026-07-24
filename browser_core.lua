@@ -11,6 +11,7 @@ M.platform = nil
 -- Browser navigation and row state.
 M.root_path = ""
 M.path_draft = ""
+M.path_entry_syncing = false
 M.file_cache = {}
 M.visible_rows = {}
 M.scroll = 0
@@ -47,12 +48,13 @@ M.drag_target_idx = nil
 M.drag_copy = false
 M.drag_expand_path = nil
 
--- Preview pane state. preview_image is an Aseprite Image rendered by browser_draw.lua.
-M.preview_enabled = false
+-- Preview has three modes: tree only, tree plus preview, and full-canvas reference.
+M.preview_mode = "off"
 M.preview_w = 150
 M.preview_path = nil
 M.preview_image = nil
 M.preview_status = "Preview off."
+M.ref_viewer = nil
 M.tree_cursor = nil
 
 -- Drag state for vertical, horizontal, and preview-resize interactions.
@@ -301,8 +303,8 @@ function M.load_preview(path)
 end
 
 function M.preview_row(row)
-  -- Selection drives preview content when the preview pane is enabled.
-  if not M.preview_enabled then return end
+  -- Selection drives content only in the normal tree-and-preview mode.
+  if M.preview_mode ~= "preview" then return end
   if row == nil or row.is_folder or row.is_shortcut then
     M.clear_preview("Select a file to preview.")
     return
@@ -311,15 +313,58 @@ function M.preview_row(row)
   M.load_preview(row.path)
 end
 
-function M.toggle_preview()
-  -- Show/hide the preview pane without changing the current tree selection.
-  M.preview_enabled = not M.preview_enabled
-  if not M.preview_enabled then M.clear_preview("Preview off.") end
-  if M.preview_enabled and M.selected ~= nil and app.fs.isFile(M.selected) then M.load_preview(M.selected) end
+function M.sync_path_entry()
+  if M.dialog == nil then return end
+  M.path_entry_syncing = true
+  M.modify{ id = "root_entry", text = M.path_draft }
+  M.path_entry_syncing = false
+end
+
+function M.select_path(row)
+  -- Single-click selection also makes the Path field describe that item.
+  if row == nil or row.is_section or row.is_divider then return end
+  M.selected = row.path
+  M.path_draft = row.path
+  M.sync_path_entry()
+  M.preview_row(row)
+  M.save_prefs()
+end
+
+function M.cycle_preview_mode()
+  -- Cycle tree-only, normal preview, and full-canvas reference modes.
+  M.context_menu = nil
+  M.context_hover = nil
+  M.context_submenu_hover = nil
+  M.clear_file_drag()
+
+  if M.preview_mode == "off" then
+    M.preview_mode = "preview"
+    if M.selected ~= nil and app.fs.isFile(M.selected) then M.load_preview(M.selected) end
+  elseif M.preview_mode == "preview" then
+    M.preview_mode = "ref"
+    M.clear_preview("Preview off.")
+    if M.ref_viewer ~= nil then
+      if M.selected ~= nil and app.fs.isFile(M.selected) then
+        M.ref_viewer.load(M.selected)
+      else
+        M.ref_viewer.reset()
+      end
+    end
+  else
+    M.preview_mode = "off"
+    M.clear_preview("Preview off.")
+    if M.ref_viewer ~= nil then M.ref_viewer.reset() end
+  end
+
   M.clamp_scroll()
   M.save_prefs()
   M.update_preview_button()
+  M.update_mode_controls()
   if M.dialog then M.dialog:repaint() end
+end
+
+function M.is_ref_mode()
+  return M.preview_mode == "ref"
 end
 
 function M.save_prefs()
@@ -335,7 +380,8 @@ function M.save_prefs()
   p.color_tags = M.color_tags
   p.filter_text = M.filter_text
   p.filter_mode = M.filter_mode
-  p.preview_enabled = M.preview_enabled
+  p.preview_mode = M.preview_mode
+  p.preview_enabled = nil
   p.preview_w = M.preview_w
   if M.dialog then
     local bounds = M.dialog.bounds
@@ -440,9 +486,26 @@ function M.init_root()
   M.filter_text = M.plugin.preferences.filter_text or ""
   M.pending_filter_text = M.filter_text
   M.filter_mode = M.plugin.preferences.filter_mode or "All"
-  M.preview_enabled = M.plugin.preferences.preview_enabled == true
+  local saved_preview_mode = M.plugin.preferences.preview_mode
+  if saved_preview_mode == "off" or saved_preview_mode == "preview" or saved_preview_mode == "ref" then
+    M.preview_mode = saved_preview_mode
+  elseif M.plugin.preferences.preview_enabled == true then
+    M.preview_mode = "preview"
+  else
+    M.preview_mode = "off"
+  end
   M.preview_w = M.plugin.preferences.preview_w or M.PREVIEW_DEFAULT_W
-  M.preview_status = M.preview_enabled and "Select a file to preview." or "Preview off."
+  M.preview_status = M.preview_mode == "preview" and "Select a file to preview." or "Preview off."
+  if M.ref_viewer ~= nil then M.ref_viewer.reset() end
+  if M.preview_mode == "preview" and M.selected ~= nil and app.fs.isFile(M.selected) then
+    M.load_preview(M.selected)
+  end
+  if M.preview_mode == "ref"
+    and M.ref_viewer ~= nil
+    and M.selected ~= nil
+    and app.fs.isFile(M.selected) then
+    M.ref_viewer.load(M.selected)
+  end
   M.path_draft = M.root_path
 end
 
@@ -452,9 +515,20 @@ function M.update_root_button()
 end
 
 function M.update_preview_button()
-  -- Keep the preview toggle button text synced with preview_enabled.
-  local text = M.preview_enabled and "Preview: On" or "Preview: Off"
+  -- Keep the preview button text synced with the three-state mode.
+  local text = "Preview: Off"
+  if M.preview_mode == "preview" then text = "Preview: On" end
+  if M.preview_mode == "ref" then text = "Preview: Ref" end
   M.modify{ id = "b_preview", text = text }
+end
+
+function M.update_mode_controls()
+  -- Preview modes keep only the Path field visible above the navigation row.
+  local show_filters = M.preview_mode == "off"
+  M.modify{ id = "search_label", visible = show_filters }
+  M.modify{ id = "filter_entry", visible = show_filters }
+  M.modify{ id = "type_label", visible = show_filters }
+  M.modify{ id = "filter_mode", visible = show_filters }
 end
 
 function M.update_expand_button()
@@ -495,7 +569,7 @@ end
 
 function M.tree_w()
   -- Tree width shrinks when the preview pane is visible.
-  if not M.preview_enabled then return M.canvas_w end
+  if M.preview_mode ~= "preview" then return M.canvas_w end
   if M.canvas_w < M.PREVIEW_MIN_TREE_W + M.PREVIEW_MIN_W then return M.canvas_w end
   M.clamp_preview_w()
   return M.canvas_w - M.preview_w - M.PREVIEW_GAP
@@ -508,7 +582,7 @@ end
 
 function M.has_preview_pane()
   -- Small windows hide the preview pane rather than crushing the tree.
-  return M.preview_enabled and M.tree_w() < M.canvas_w
+  return M.preview_mode == "preview" and M.tree_w() < M.canvas_w
 end
 
 function M.clear_preview(status)
@@ -874,9 +948,10 @@ function M.refresh()
   M.save_prefs()
   M.update_root_button()
   M.update_preview_button()
+  M.update_mode_controls()
   M.update_expand_button()
   if M.dialog then
-    M.modify{ id = "root_entry", text = M.path_draft }
+    M.sync_path_entry()
     M.modify{ id = "filter_entry", text = M.filter_text }
     M.modify{ id = "search_label", text = search_label_text(M.status_text) }
     M.dialog:repaint()
@@ -936,8 +1011,14 @@ function M.invalidate_folders(paths)
   M.search_index = {}
   M.search_index_root = nil
 
-  if M.preview_enabled and M.has(M.preview_path) and app.fs.isFile(M.preview_path) then
+  if M.preview_mode == "preview" and M.has(M.preview_path) and app.fs.isFile(M.preview_path) then
     M.load_preview(M.preview_path)
+  end
+  if M.preview_mode == "ref"
+    and M.ref_viewer ~= nil
+    and M.has(M.ref_viewer.path)
+    and app.fs.isFile(M.ref_viewer.path) then
+    M.ref_viewer.load(M.ref_viewer.path)
   end
   M.refresh()
 end
@@ -982,7 +1063,7 @@ function M.create_file(folder_path, name, file_type)
   local exp = M.expanded_set()
   exp[folder_path] = true
   M.selected = target
-  if M.preview_enabled then M.load_preview(target) end
+  if M.preview_mode == "preview" then M.load_preview(target) end
   reset_cached_tree()
   M.refresh()
   return true
@@ -1064,6 +1145,9 @@ function M.update_renamed_paths(old_path, new_path, is_folder)
   -- Rewrite state that references a renamed file or folder.
   M.selected = replace_path_prefix(M.selected, old_path, new_path)
   M.preview_path = replace_path_prefix(M.preview_path, old_path, new_path)
+  if M.ref_viewer ~= nil then
+    M.ref_viewer.path = replace_path_prefix(M.ref_viewer.path, old_path, new_path)
+  end
 
   local next_tags = {}
   for path, color in pairs(M.color_tags) do
@@ -1090,6 +1174,9 @@ function M.clear_deleted_paths(path)
   -- Remove state that points at a deleted file/folder tree.
   if path_is_same_or_child(M.selected, path) then M.selected = nil end
   if path_is_same_or_child(M.preview_path, path) then M.clear_preview("Select a file to preview.") end
+  if M.ref_viewer ~= nil and path_is_same_or_child(M.ref_viewer.path, path) then
+    M.ref_viewer.reset()
+  end
 
   if path_is_same_or_child(M.root_path, path) then M.root_path = app.fs.filePath(path) end
   if path_is_same_or_child(M.pinned_root, path) then M.pinned_root = "" end
@@ -1661,7 +1748,7 @@ function M.rename_path(row, name)
     end
 
     M.update_renamed_paths(old_path, new_path, row_is_folder(row))
-    if M.preview_enabled and M.selected == new_path and app.fs.isFile(new_path) then
+    if M.preview_mode == "preview" and M.selected == new_path and app.fs.isFile(new_path) then
       M.load_preview(new_path)
     end
     reset_cached_tree()
@@ -1682,7 +1769,9 @@ function M.rename_path(row, name)
   end
 
   M.update_renamed_paths(old_path, new_path, row_is_folder(row))
-  if M.preview_enabled and M.selected == new_path and app.fs.isFile(new_path) then M.load_preview(new_path) end
+  if M.preview_mode == "preview" and M.selected == new_path and app.fs.isFile(new_path) then
+    M.load_preview(new_path)
+  end
   reset_cached_tree()
   M.save_browser_settings()
   M.refresh()
@@ -1741,6 +1830,18 @@ end
 function M.open_path_draft()
   local path = app.fs.normalizePath(trimmed(M.path_draft))
   if path == M.root_path then return true end
+  if app.fs.isFile(path) and M.is_supported(path) then
+    local parent = app.fs.filePath(path)
+    if parent ~= M.root_path then M.nav_to(parent, true) end
+    M.selected = path
+    M.path_draft = path
+    M.sync_path_entry()
+    if M.preview_mode == "preview" then M.load_preview(path) end
+    if M.preview_mode == "ref" and M.ref_viewer ~= nil then M.ref_viewer.load(path) end
+    M.save_prefs()
+    if M.dialog then M.dialog:repaint() end
+    return true
+  end
   if not app.fs.isDirectory(path) then return false end
 
   M.nav_to(path, true)

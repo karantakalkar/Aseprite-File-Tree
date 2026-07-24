@@ -33,7 +33,7 @@ Sprite    Use the current sprite's folder as the root.
 Root      Navigate to the pinned root folder (set via right-click).
 Expand All / Collapse All
           Toggle every folder below the current root.
-Preview   Toggle the right-side file preview pane.
+Preview   Cycle Off, On, and Ref preview modes.
 ```
 
 The tree checks cached and expanded folders for external filesystem changes once per second.
@@ -59,8 +59,24 @@ The tree checks cached and expanded folders for external filesystem changes once
 - Assign Red, Green, Blue, Yellow, or Purple row colors from a file or folder's right-click menu.
 - Folder colors cascade to all descendants. A directly tagged child uses its own color instead.
 - Color tags are stored locally and follow renamed or moved items.
-- Use **Preview** to show or hide the right-side preview pane. When preview is on, single-click a file to preview its first frame.
+- Use **Preview** to cycle through **Off**, **On**, and **Ref**.
+- **Preview: Off** shows the full file tree.
+- **Preview: On** shows the tree and the resizable right-side preview pane. Single-click a file to preview its first frame.
+- **Preview: Ref** hides the tree and turns the full canvas into an interactive viewer for the file that was selected in the tree.
 - Drag the divider between the tree and preview pane to resize the preview. Hovering the divider switches to Aseprite's horizontal resize cursor.
+- In Preview Ref, use the mouse wheel to zoom and middle-mouse drag to pan, matching Aseprite's canvas navigation.
+- Guidance is shown in the bottom panel so it never covers the reference image.
+- The high-contrast Preview Ref toolbar provides **Fit**, **100%**, zoom out/in, **Pick Primary Color**, **Pick Secondary Color**, and **Crop**.
+- **Fit** scales the complete reference into the available image area. **100%** displays one image pixel as one screen pixel.
+- The Primary and Secondary color pickers share one toolbar row.
+- **Primary** is Aseprite's foreground drawing color. **Secondary** is its alternate/background color.
+- Choose a Pick button, then left-click the reference image to sample that color. **Ctrl-click** still picks Primary and **Shift-click** still picks Secondary.
+- Search and Type are hidden in Preview On and Preview Ref; Path remains available.
+- Single-clicking any file or folder updates Path to that item's full path.
+- Entering a folder in Path navigates into it. Entering a supported image-file path navigates to its parent folder, selects the file, and loads it in Preview On or Preview Ref.
+- Choose **Crop**, drag a rectangle with the left mouse button, then choose **Copy Crop**. Paste the copied pixels into the active sprite with **Ctrl+V**.
+- Aseprite may show its clipboard-write permission prompt the first time **Copy Crop** is used.
+- Leaving Preview Ref clears its temporary zoom, pan, crop, and sampled-color state.
 - The tree refreshes automatically after creating, renaming, or deleting files and folders.
 - **Right-click** the Root label to clear the pinned root.
 - **Mouse wheel** or **scrollbar** to scroll. **Shift + wheel** for horizontal scroll.

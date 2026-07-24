@@ -11,6 +11,7 @@ $files = @(
     "folder_browser.lua",
     "browser_core.lua",
     "browser_draw.lua",
+    "ref_viewer.lua",
     "filesystem_watcher.lua",
     "platform.lua",
     "README.md"

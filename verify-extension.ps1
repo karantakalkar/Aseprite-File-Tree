@@ -6,6 +6,7 @@ $packagePath = Join-Path $root "package.json"
 $mainPath = Join-Path $root "folder_browser.lua"
 $corePath = Join-Path $root "browser_core.lua"
 $drawPath = Join-Path $root "browser_draw.lua"
+$refViewerPath = Join-Path $root "ref_viewer.lua"
 $watcherPath = Join-Path $root "filesystem_watcher.lua"
 $platformPath = Join-Path $root "platform.lua"
 $readmePath = Join-Path $root "README.md"
@@ -16,7 +17,7 @@ $fakeFilesystemPath = Join-Path $root "tests\fake_filesystem.lua"
 $extensionPath = Join-Path $root "aseprite-file-tree.aseprite-extension"
 
 # Fail early when a required source/build file is missing.
-foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $watcherPath, $platformPath, $readmePath, $buildPath, $testRunnerPath, $filesystemTestsPath, $fakeFilesystemPath)) {
+foreach ($path in @($packagePath, $mainPath, $corePath, $drawPath, $refViewerPath, $watcherPath, $platformPath, $readmePath, $buildPath, $testRunnerPath, $filesystemTestsPath, $fakeFilesystemPath)) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Missing required file: $path"
     }
@@ -36,11 +37,12 @@ if ($package.contributes.scripts[0].path -ne "./folder_browser.lua") {
 $main = Get-Content -LiteralPath $mainPath -Raw
 $core = Get-Content -LiteralPath $corePath -Raw
 $draw = Get-Content -LiteralPath $drawPath -Raw
+$refViewer = Get-Content -LiteralPath $refViewerPath -Raw
 $watcher = Get-Content -LiteralPath $watcherPath -Raw
 $platform = Get-Content -LiteralPath $platformPath -Raw
 $readme = Get-Content -LiteralPath $readmePath -Raw
 $packageText = Get-Content -LiteralPath $packagePath -Raw
-$allText = "$main`n$core`n$draw`n$watcher`n$platform`n$readme`n$packageText"
+$allText = "$main`n$core`n$draw`n$refViewer`n$watcher`n$platform`n$readme`n$packageText"
 
 # Guard against accidental local machine paths or removed defaults leaking into releases.
 foreach ($localPattern in @(
@@ -139,9 +141,10 @@ foreach ($text in @(
     "rename_dialog_name",
     "os.rename",
     "Sprite(16, 16)",
-    "preview_enabled",
+    "preview_mode",
     "preview_w",
-    "toggle_preview",
+    "cycle_preview_mode",
+    "update_mode_controls",
     "load_preview",
     "resize_preview_at",
     "is_preview_divider",
@@ -165,6 +168,31 @@ foreach ($text in @(
 )) {
     if (-not $core.Contains($text) -and -not $main.Contains($text)) {
         throw "Core browser feature is missing: $text"
+    }
+}
+
+# Reference-viewer checks cover full-canvas navigation, visible sampling tools, and crop copying.
+foreach ($text in @(
+    "ref_viewer",
+    "Preview: Ref",
+    "screen_to_image",
+    "zoom_at",
+    "begin_pan",
+    "is_middle_button_down",
+    "MouseCursor.CROSSHAIR",
+    "MouseCursor.GRABBING",
+    "Pick Primary Color",
+    "Pick Secondary Color",
+    "sample_at",
+    "begin_crop",
+    "copy_crop",
+    "app.clipboard.image",
+    "Copy Crop",
+    "Ctrl-click",
+    "Shift-click"
+)) {
+    if (-not $allText.Contains($text)) {
+        throw "Reference viewer feature is missing: $text"
     }
 }
 
@@ -207,12 +235,16 @@ foreach ($text in @(
     "root_entry",
     "open_path_draft",
     "restart_path_timer",
+    "select_path",
+    "path_entry_syncing",
+    "app.fs.isFile(path)",
     "clear_root",
     'text = "Path"',
     'text = "Search"',
     'text = "Type"',
     'text = "Root"',
     'text = "Preview: Off"',
+    "Preview: Ref",
     "Set Root"
 )) {
     if (-not $allText.Contains($text)) {
@@ -228,6 +260,16 @@ foreach ($text in @(
     "Preview",
     "Drag the divider",
     "horizontal resize cursor",
+    "Preview Ref",
+    "Ctrl-click",
+    "Shift-click",
+    "middle-mouse",
+    "Pick Primary Color",
+    "Pick Secondary Color",
+    "Single-clicking any file or folder updates Path",
+    "supported image-file path navigates to its parent folder",
+    "Copy Crop",
+    "Ctrl+V",
     "Delete",
     "Cut",
     "Copy",
@@ -255,7 +297,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($extensionPath)
 try {
     $entries = $zip.Entries | ForEach-Object { $_.FullName }
-    foreach ($entry in @("package.json", "folder_browser.lua", "browser_core.lua", "browser_draw.lua", "filesystem_watcher.lua", "platform.lua", "README.md")) {
+    foreach ($entry in @("package.json", "folder_browser.lua", "browser_core.lua", "browser_draw.lua", "ref_viewer.lua", "filesystem_watcher.lua", "platform.lua", "README.md")) {
         if ($entries -notcontains $entry) {
             throw "Extension archive must contain $entry at the root"
         }

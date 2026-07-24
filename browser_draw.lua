@@ -1,7 +1,7 @@
 -- browser_draw.lua
 -- Theme handling and all canvas rendering.
 
-local core = ...
+local core, ref_viewer = ...
 local D = {}
 
 -- Theme colors are cached so paint functions stay small and consistent.
@@ -388,6 +388,11 @@ function D.on_paint(ev)
   font_h = gc:measureText("Ay").height
 
   D.refresh_theme()
+
+  if core.is_ref_mode() then
+    ref_viewer.paint(gc)
+    return
+  end
 
   if #core.visible_rows == 0 then
     paint_empty(gc)
