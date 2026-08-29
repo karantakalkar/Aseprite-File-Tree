@@ -1018,7 +1018,7 @@ function M.invalidate_folders(paths)
     and M.ref_viewer ~= nil
     and M.has(M.ref_viewer.path)
     and app.fs.isFile(M.ref_viewer.path) then
-    M.ref_viewer.load(M.ref_viewer.path)
+    M.ref_viewer.reload(M.ref_viewer.path)
   end
   M.refresh()
 end

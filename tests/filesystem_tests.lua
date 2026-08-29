@@ -535,6 +535,22 @@ local function test_ref_view_navigation()
   ref_viewer.mouseup()
 end
 
+local function test_ref_view_reload_preserves_camera()
+  expect(ref_viewer.load("/workspace/reference.png"), "reference image did not load")
+  ref_viewer.zoom = 3.25
+  ref_viewer.pan_x = -47
+  ref_viewer.pan_y = 86
+  ref_viewer.view_w = 640
+  ref_viewer.view_h = 480
+
+  expect(ref_viewer.reload("/workspace/reference.png"), "reference image did not reload")
+  expect(close_enough(ref_viewer.zoom, 3.25), "reference reload reset zoom")
+  expect(close_enough(ref_viewer.pan_x, -47), "reference reload reset horizontal pan")
+  expect(close_enough(ref_viewer.pan_y, 86), "reference reload reset vertical pan")
+  expect(ref_viewer.view_w == 640, "reference reload reset viewport width")
+  expect(ref_viewer.view_h == 480, "reference reload reset viewport height")
+end
+
 local function test_ref_view_crop()
   set_ref_test_image()
   local directions = {
@@ -607,6 +623,7 @@ test_dialog_bounds_capture()
 test_path_draft_waits_before_navigation()
 test_preview_mode_cycle_and_migration()
 test_ref_view_navigation()
+test_ref_view_reload_preserves_camera()
 test_ref_view_crop()
 test_ref_view_color_sampling()
 

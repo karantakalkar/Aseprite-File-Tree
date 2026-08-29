@@ -130,6 +130,24 @@ function R.load(path)
   return true
 end
 
+function R.reload(path)
+  -- Refresh saved pixels without moving the current reference view.
+  local zoom = R.zoom
+  local pan_x = R.pan_x
+  local pan_y = R.pan_y
+  local view_w = R.view_w
+  local view_h = R.view_h
+
+  if not R.load(path) then return false end
+
+  R.zoom = zoom
+  R.pan_x = pan_x
+  R.pan_y = pan_y
+  R.view_w = view_w
+  R.view_h = view_h
+  return true
+end
+
 function R.fit(width, height)
   if R.image == nil then return end
   local source = R.source_rect()
