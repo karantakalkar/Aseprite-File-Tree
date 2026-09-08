@@ -29,21 +29,22 @@ Edit the Path field to navigate automatically after you stop typing.
 ```text
 < Back    Return to the previous root folder.
 ^ Up      Use the parent folder as the root.
-Sprite    Use the current sprite's folder as the root.
+Reveal Sprite
+          Expand parent folders, select the active sprite, and scroll to it.
 Root      Navigate to the pinned root folder (set via right-click).
 Expand All / Collapse All
           Toggle every folder below the current root.
 Preview   Cycle Off, On, and Ref preview modes.
 ```
 
-The tree checks cached and expanded folders for external filesystem changes once per second.
+The tree polls the root every second and checks up to 16 cached folders per tick. Larger trees are checked in rotation.
 
 ### Mouse Interactions
 
 - **Single-click** a folder to expand or collapse it.
 - **Single-click** a file to select (highlight) it.
 - **Double-click** a file to open it in Aseprite.
-- **Double-click** a folder to drill into it as the new root.
+- Use a folder's **Open** context action to make it the new root. Clicking a folder toggles its expansion.
 - **Right-click** a folder to create a new file or folder, cut/copy/paste, set root, add/remove favorite, copy path, or reveal it in the system file manager.
 - **Right-click** empty tree space to create a new file or folder in the current root.
 - Copy Path and Reveal work on Windows, macOS, and Linux.
@@ -71,7 +72,7 @@ The tree checks cached and expanded folders for external filesystem changes once
 - The Primary and Secondary color pickers share one toolbar row.
 - **Primary** is Aseprite's foreground drawing color. **Secondary** is its alternate/background color.
 - Choose a Pick button, then left-click the reference image to sample that color. **Ctrl-click** still picks Primary and **Shift-click** still picks Secondary.
-- Search and Type are hidden in Preview On and Preview Ref; Path remains available.
+- Search and Type remain available in Preview On and are hidden in Preview Ref; Path remains available.
 - Single-clicking any file or folder updates Path to that item's full path.
 - Entering a folder in Path navigates into it. Entering a supported image-file path navigates to its parent folder, selects the file, and loads it in Preview On or Preview Ref.
 - Choose **Crop**, drag a rectangle with the left mouse button, then choose **Copy Crop**. Paste the copied pixels into the active sprite with **Ctrl+V**.
@@ -81,15 +82,36 @@ The tree checks cached and expanded folders for external filesystem changes once
 - **Right-click** the Root label to clear the pinned root.
 - **Mouse wheel** or **scrollbar** to scroll. **Shift + wheel** for horizontal scroll.
 
-### Keyboard Shortcut
+### Multiple selection and operations
+
+- **Ctrl-click** adds/removes an item; use **Command-click** on macOS. **Shift-click** selects a visible range. Ctrl/Command+Shift adds a range to the existing selection.
+- The selection count includes selected items inside collapsed folders. Changing Search or Type clears the selection.
+- Right-clicking a selected item keeps the group. Right-clicking another item selects that item. A plain click selects one item when the mouse is released, so a drag can still move the whole group.
+- **Cut**, **Copy**, **Delete**, drag-move, and drag-copy apply to the group. Selected children of a selected folder are processed through their parent once.
+- Hold **Ctrl** while dragging to copy; use **Option** on macOS. Every selected item's destination must be valid for the drop to proceed.
+- **Paste** transfers the entire clipboard into the chosen folder. Conflict choices can apply to the rest of the batch. Cancelling stops the remaining transfers; completed transfers stay completed, and unprocessed cut items remain on the clipboard.
+- **Rename** prompts for each selected item, children before parents. Cancel ends the remaining prompts.
+- **Open** opens selected files and expands selected folders. **Copy Path** copies all selected paths on separate lines. **Reveal in File Manager**, color tags, and adding/removing favorites also support groups.
+- New File, New Folder, Paste, and Set Root use one destination. Their folder context actions appear for a single selected folder; empty-space Paste targets the current root.
+- With the tree focused, **Ctrl/Command+A**, **C**, **X**, and **V** select all, copy, cut, and paste. **Delete** opens group deletion confirmation, **F2** starts rename, **Enter** opens, and **Escape** clears selection.
+
+### Reveal and reference navigation
+
+**Reveal Sprite** keeps the current root when it contains the active sprite, clears hiding filters, expands its ancestors, and selects and scrolls to it. For a sprite outside the root, it uses that sprite's parent folder. The sprite must already be saved. In Ref mode, reveal returns to the tree-and-preview layout.
+
+In **Preview Ref**, **< Prev** and **Next >** switch between supported image files in the current reference's folder, in the same folders-first, case-insensitive filename order as the tree. Navigation stops at the first/last file. Switching files resets the reference camera and crop; refreshing the same file preserves the camera.
+
+### Toggle shortcut
 
 Go to **Edit → Keyboard Shortcuts**, search for **File Tree**, and assign a key to toggle the browser open/closed.
 
 ### Search & Filter
 
-- **Search** field filters files and folders by name (debounced 1.5s).
+- **Search** field filters files and folders by plain substring (250 ms debounce).
 - **Type** dropdown filters by file extension (.png, .ase, etc).
 - When a type filter is active, only files matching the type appear; folders show only as ancestors of matching files.
+- Both text search and type-only filtering search nested folders. Index construction yields between small batches; cached lowercase names and parent links avoid repeatedly copying ancestor lists.
+- Search is limited to 128 folder levels to bound traversal through deeply nested folders or directory-link cycles. A depth-limit message appears when this limit is reached. Folder enumeration itself is synchronous, so a single very large or slow network directory can still delay a tick.
 
 ### Favorites
 
@@ -105,5 +127,11 @@ Go to **Edit → Keyboard Shortcuts**, search for **File Tree**, and assign a ke
 ```
 
 ## Notes
+
+- Preview content is checked in 256 KiB chunks to catch saves whose file size did not change. Large references take several ticks to finish checking. Other files use folder name/type checks, so ordinary saves do not restart search indexing; this is polling, not a native operating-system event watcher.
+- Windows shell integration uses encoded PowerShell commands and literal paths, including Unicode and characters such as `%` and `&`. Older Aseprite builds that disable Lua file removal/rename use platform fallbacks; permission-denial errors are reported rather than retried through a fallback.
+- macOS uses Command for selection/shortcuts and Option for copy-drag. Finder reveal uses `open -R`; Linux opens the containing folder with `xdg-open`.
+- Search folds ASCII case using Lua's lowercase operation; full Unicode case folding and filesystem link-identity detection are not available in this implementation.
+- The automated tests include real Windows file operations on Aseprite 1.3.7 and simulated macOS/Linux behavior. Native macOS/Linux and visual UI verification still require those environments.
 
 This is a floating dialog because the public Aseprite extension API does not expose native docked editor tabs.

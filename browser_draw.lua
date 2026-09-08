@@ -129,7 +129,7 @@ local function paint_row(gc, row, idx, view_w)
   local y = (idx - 1) * core.ROW_H - core.scroll
   local px = core.PAD_X
   local x = px + row.depth * core.INDENT - core.h_scroll
-  local is_sel = row.path == core.selected and not row.is_shortcut
+  local is_sel = core.is_selected(row.path)
   local is_hov = idx == core.hovered_idx
   local is_drop = core.drag_started and row.path == core.drag_target_path
   local tag_name = core.color_tag_for_path(row.path)

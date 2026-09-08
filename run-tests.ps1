@@ -19,11 +19,11 @@ $resultPath = [System.IO.Path]::GetTempFileName()
 Remove-Item -LiteralPath $resultPath
 
 try {
-    & $AsepritePath -b -script-param "result=$resultPath" -script $testPath
-
-    for ($attempt = 0; $attempt -lt 50 -and -not (Test-Path -LiteralPath $resultPath); $attempt++) {
-        Start-Sleep -Milliseconds 100
-    }
+    $arguments = @('-b', '-script-param', ('"result={0}"' -f $resultPath), '-script', ('"{0}"' -f $testPath))
+    $process = Start-Process -FilePath $AsepritePath -ArgumentList $arguments -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput "$resultPath.stdout" -RedirectStandardError "$resultPath.stderr"
+    $process.WaitForExit()
+    Get-Content -LiteralPath "$resultPath.stdout", "$resultPath.stderr"
 
     if (-not (Test-Path -LiteralPath $resultPath)) {
         throw "Filesystem behavior tests did not create the success marker."
@@ -35,8 +35,10 @@ try {
     }
 }
 finally {
-    if (Test-Path -LiteralPath $resultPath) {
-        Remove-Item -LiteralPath $resultPath
+    foreach ($temporaryPath in @($resultPath, "$resultPath.stdout", "$resultPath.stderr")) {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath
+        }
     }
 }
 

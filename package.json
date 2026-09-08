@@ -2,7 +2,7 @@
   "name": "aseprite-file-tree",
   "displayName": "Aseprite File Tree",
   "description": "Browse a folder tree and open art files from a floating Aseprite dialog.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "Karan Takalkar"
   },

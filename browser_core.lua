@@ -31,6 +31,9 @@ M.status_text = ""
 
 -- Selection, hover, and right-click menu state for the tree canvas.
 M.selected = nil
+M.selection = {}
+M.selection_anchor = nil
+M.clipboard_items = {}
 M.hovered_idx = nil
 M.context_menu = nil
 M.context_hover = nil
@@ -95,6 +98,7 @@ M.search_matches = {}
 M.search_ancestors = {}
 M.search_index = {}
 M.search_index_root = nil
+M.search_job = nil
 
 -- Canvas size is updated during paint; input handlers read the latest values.
 M.canvas_w = M.DEF_W
@@ -192,10 +196,12 @@ local function replace_path_prefix(path, old_path, new_path)
   local clean_path = app.fs.normalizePath(path)
   local clean_old = app.fs.normalizePath(old_path)
   local clean_new = app.fs.normalizePath(new_path)
-  local prefix = clean_old .. app.fs.pathSeparator
+  local compare_path, compare_old = clean_path, clean_old
+  if app.os.windows then compare_path, compare_old = lo(clean_path), lo(clean_old) end
+  local prefix = compare_old .. app.fs.pathSeparator
 
-  if clean_path == clean_old then return clean_new end
-  if clean_path:sub(1, #prefix) == prefix then return clean_new .. clean_path:sub(#clean_old + 1) end
+  if compare_path == compare_old then return clean_new end
+  if compare_path:sub(1, #prefix) == prefix then return clean_new .. clean_path:sub(#clean_old + 1) end
   return path
 end
 
@@ -204,7 +210,12 @@ local function path_is_same_or_child(path, parent)
   if not M.has(path) then return false end
   local clean_path = app.fs.normalizePath(path)
   local clean_parent = app.fs.normalizePath(parent)
-  local prefix = clean_parent .. app.fs.pathSeparator
+  if app.os.windows then
+    clean_path = lo(clean_path)
+    clean_parent = lo(clean_parent)
+  end
+  local prefix = clean_parent
+  if prefix:sub(-1) ~= app.fs.pathSeparator then prefix = prefix .. app.fs.pathSeparator end
   return clean_path == clean_parent or clean_path:sub(1, #prefix) == prefix
 end
 
@@ -220,6 +231,7 @@ local function reset_cached_tree()
   M.file_cache = {}
   M.search_index = {}
   M.search_index_root = nil
+  M.search_job = nil
 end
 
 local function remove_path_prefixes(list, old_path)
@@ -324,10 +336,91 @@ function M.select_path(row)
   -- Single-click selection also makes the Path field describe that item.
   if row == nil or row.is_section or row.is_divider then return end
   M.selected = row.path
+  M.selection = { [row.path] = true }
+  M.selection_anchor = row.path
   M.path_draft = row.path
   M.sync_path_entry()
   M.preview_row(row)
   M.save_prefs()
+end
+
+function M.is_selected(path)
+  return M.selection[path] == true
+end
+
+function M.update_selection_status()
+  local count = 0
+  for _ in pairs(M.selection) do count = count + 1 end
+  M.modify{ id = "selection_status", text = count > 0 and (count .. " selected") or "" }
+end
+
+function M.select_row(row, additive, range)
+  if row.is_section or row.is_divider or row.is_root_info then return end
+  if range then
+    local first, last
+    for index, visible in ipairs(M.visible_rows) do
+      if visible.path == M.selection_anchor then first = index end
+      if visible.path == row.path then last = index end
+    end
+    if not additive then M.selection = {} end
+    if first and last then
+      for index = math.min(first, last), math.max(first, last) do
+        local visible = M.visible_rows[index]
+        if not visible.is_section and not visible.is_divider and not visible.is_root_info then
+          M.selection[visible.path] = true
+        end
+      end
+    else
+      M.selection[row.path] = true
+    end
+  elseif additive then
+    M.selection[row.path] = not M.selection[row.path] or nil
+    M.selection_anchor = row.path
+  else
+    M.selection = { [row.path] = true }
+    M.selection_anchor = row.path
+  end
+  M.selected = row.path
+  M.path_draft = row.path
+  M.sync_path_entry()
+  M.preview_row(row)
+  M.update_selection_status()
+end
+
+function M.operation_rows(row, include_children)
+  if row == nil then return {} end
+  if not M.is_selected(row.path) then return { row } end
+  local paths = {}
+  for path in pairs(M.selection) do table.insert(paths, path) end
+  table.sort(paths, function(a, b)
+    if #a ~= #b then return #a < #b end
+    return a < b
+  end)
+  local rows = {}
+  for _, path in ipairs(paths) do
+    local covered = false
+    if not include_children then
+      for _, parent in ipairs(rows) do
+        if parent.is_folder and path_is_same_or_child(path, parent.path) then covered = true; break end
+      end
+    end
+    if not covered then
+      table.insert(rows, { path = path, name = M.row_name(path), is_folder = app.fs.isDirectory(path) })
+    end
+  end
+  return rows
+end
+
+function M.select_all()
+  M.selection = {}
+  for _, row in ipairs(M.visible_rows) do
+    if not row.is_section and not row.is_divider and not row.is_root_info and not row.is_shortcut then
+      M.selection[row.path] = true
+      M.selected = row.path
+    end
+  end
+  M.update_selection_status()
+  M.dialog:repaint()
 end
 
 function M.cycle_preview_mode()
@@ -524,7 +617,9 @@ end
 
 function M.update_mode_controls()
   -- Preview modes keep only the Path field visible above the navigation row.
-  local show_filters = M.preview_mode == "off"
+  local show_filters = M.preview_mode ~= "ref"
+  M.modify{ id = "b_prev_ref", visible = M.is_ref_mode() }
+  M.modify{ id = "b_next_ref", visible = M.is_ref_mode() }
   M.modify{ id = "search_label", visible = show_filters }
   M.modify{ id = "filter_entry", visible = show_filters }
   M.modify{ id = "type_label", visible = show_filters }
@@ -633,12 +728,14 @@ end
 function M.scan_folder(path)
   -- Read one folder level and keep only folders plus supported files.
   local items = {}
-  for _, name in ipairs(app.fs.listFiles(path)) do
+  local ok, names = pcall(app.fs.listFiles, path)
+  if not ok then return items end
+  for _, name in ipairs(names) do
     local fp = app.fs.joinPath(path, name)
     if app.fs.isDirectory(fp) then
-      table.insert(items, { name = name, path = fp, is_folder = true })
+      table.insert(items, { name = name, search_name = lo(name), path = fp, is_folder = true })
     elseif M.is_supported(fp) then
-      table.insert(items, { name = name, path = fp, is_folder = false })
+      table.insert(items, { name = name, search_name = lo(name), path = fp, is_folder = false })
     end
   end
   table.sort(items, sort_entries)
@@ -703,11 +800,11 @@ end
 
 local function text_matches(item)
   -- Plain substring matching keeps search predictable and cheap.
-  if not M.has(M.filter_text) then return true end
   -- When a type filter is active, only match file names, not folder names.
   -- Folders appear only as ancestors of matching files.
   if item.is_folder and M.filter_mode ~= "All" then return false end
-  return string.find(lo(item.name), lo(M.filter_text), 1, true) ~= nil
+  if not M.has(M.filter_text) then return true end
+  return string.find(item.search_name or lo(item.name), M.search_query or lo(M.filter_text), 1, true) ~= nil
 end
 
 function M.item_matches_filter(item)
@@ -744,37 +841,66 @@ function M.clear_filter_for_navigation()
   end
 end
 
-local function build_search_index(path, ancestors)
-  -- Flatten the tree with ancestor paths so search can show containing folders.
-  for _, item in ipairs(folder_items(path)) do
-    local next_ancestors = {}
-    for _, ancestor in ipairs(ancestors) do table.insert(next_ancestors, ancestor) end
-
-    table.insert(M.search_index, { item = item, ancestors = ancestors })
-    if item.is_folder then
-      table.insert(next_ancestors, item.path)
-      build_search_index(item.path, next_ancestors)
+local function build_search_index(path)
+  -- Explicit stack and parent links avoid recursive calls and copied ancestor lists.
+  local stack = { { path = path, depth = 0 } }
+  local work = 0
+  while #stack > 0 do
+    local folder = table.remove(stack)
+    local children = {}
+    for _, item in ipairs(folder_items(folder.path)) do
+      local indexed = { item = item, parent = folder.parent, depth = folder.depth }
+      table.insert(M.search_index, indexed)
+      if item.is_folder and folder.depth < 128 then
+        table.insert(children, { path = item.path, parent = indexed, depth = folder.depth + 1 })
+      elseif item.is_folder then
+        M.search_limited = true
+      end
+      work = work + 1
+      if work >= 1000 then work = 0; coroutine.yield() end
     end
+    for index = #children, 1, -1 do table.insert(stack, children[index]) end
+    coroutine.yield()
   end
 end
 
 local function ensure_search_index()
-  -- Rebuild the search index only when the root changes or cache is reset.
-  if M.search_index_root == M.root_path then return end
-  M.search_index = {}
-  M.search_index_root = M.root_path
-  build_search_index(M.root_path, {})
+  if M.search_index_root == M.root_path then return true end
+  if M.search_job == nil then
+    M.search_index = {}
+    M.search_limited = false
+    M.search_job = coroutine.create(function() build_search_index(M.root_path) end)
+  end
+  for _ = 1, 8 do
+    local ok, err = coroutine.resume(M.search_job)
+    if not ok then
+      M.search_job = nil
+      M.status_text = tostring(err)
+      return false
+    end
+    if coroutine.status(M.search_job) == "dead" then
+      M.search_job = nil
+      M.search_index_root = M.root_path
+      return true
+    end
+  end
+  if M.schedule_search then M.schedule_search() end
+  return false
 end
 
 local function mark_search_matches()
-  -- Record direct matches and every ancestor needed to display them.
-  ensure_search_index()
-  for _, indexed in ipairs(M.search_index) do
-    if M.item_matches_filter(indexed.item) then
-      M.search_matches[indexed.item.path] = true
-      for _, ancestor in ipairs(indexed.ancestors) do M.search_ancestors[ancestor] = true end
+  if not ensure_search_index() then return false end
+  M.search_query = lo(M.filter_text)
+  -- Parents precede children. Walk backwards to propagate matches once per entry.
+  for index = #M.search_index, 1, -1 do
+    local indexed = M.search_index[index]
+    local path = indexed.item.path
+    if M.item_matches_filter(indexed.item) then M.search_matches[path] = true end
+    if indexed.parent and (M.search_matches[path] or M.search_ancestors[path]) then
+      M.search_ancestors[indexed.parent.item.path] = true
     end
   end
+  return true
 end
 
 local function add_section(title)
@@ -811,13 +937,22 @@ local function add_favorite(path)
 end
 
 local function collect_search_rows(path, depth)
-  -- Add only search matches and ancestor folders to visible_rows.
-  for _, item in ipairs(folder_items(path)) do
-    item.depth = depth
-    if M.search_matches[item.path] or M.search_ancestors[item.path] then
-      table.insert(M.visible_rows, item)
+  local stack = { { items = folder_items(path), index = 1, depth = depth } }
+  while #stack > 0 do
+    local folder = stack[#stack]
+    local item = folder.items[folder.index]
+    if item == nil then
+      table.remove(stack)
+    else
+      folder.index = folder.index + 1
+      item.depth = folder.depth
+      if M.search_matches[item.path] or M.search_ancestors[item.path] then
+        table.insert(M.visible_rows, item)
+      end
+      if item.is_folder and M.search_ancestors[item.path] then
+        table.insert(stack, { items = folder_items(item.path), index = 1, depth = folder.depth + 1 })
+      end
     end
-    if item.is_folder and M.search_ancestors[item.path] then collect_search_rows(item.path, depth + 1) end
   end
 end
 
@@ -838,11 +973,13 @@ function M.rebuild_rows()
   M.search_ancestors = {}
   M.content_dirty = true
 
-  if M.has(M.filter_text) and app.fs.isDirectory(M.root_path) then
+  local searching = M.has(M.filter_text) or M.filter_mode ~= "All"
+  if searching and app.fs.isDirectory(M.root_path) then
     M.status_text = "Searching..."
     if M.dialog then M.modify{ id = "search_label", text = search_label_text(M.status_text) } end
-    mark_search_matches()
-    M.status_text = ""
+    if mark_search_matches() then
+      M.status_text = M.search_limited and "Depth limit reached" or ""
+    end
   else
     M.status_text = ""
   end
@@ -867,7 +1004,7 @@ function M.rebuild_rows()
   add_divider()
 
   if app.fs.isDirectory(M.root_path) then
-    if M.has(M.filter_text) then collect_search_rows(M.root_path, 0) else collect_rows(M.root_path, 0) end
+    if searching then collect_search_rows(M.root_path, 0) else collect_rows(M.root_path, 0) end
   end
 end
 
@@ -880,6 +1017,9 @@ end
 function M.set_filter(text)
   -- Apply text search and reset scroll to the top of results.
   M.filter_text = text or ""
+  M.search_query = lo(M.filter_text)
+  M.selection = {}
+  M.selected = nil
   M.pending_filter_text = M.filter_text
   M.scroll = 0
   M.h_scroll = 0
@@ -894,6 +1034,8 @@ end
 function M.set_filter_mode(mode)
   -- Apply extension filter and reset scroll.
   M.filter_mode = mode or "All"
+  M.selection = {}
+  M.selected = nil
   M.scroll = 0
   M.h_scroll = 0
   M.refresh()
@@ -945,11 +1087,12 @@ function M.refresh()
   -- Single refresh path for rebuilding rows, saving state, and repainting.
   M.rebuild_rows()
   M.clamp_scroll()
-  M.save_prefs()
+  if M.search_job == nil then M.save_prefs() end
   M.update_root_button()
   M.update_preview_button()
   M.update_mode_controls()
   M.update_expand_button()
+  M.update_selection_status()
   if M.dialog then
     M.sync_path_entry()
     M.modify{ id = "filter_entry", text = M.filter_text }
@@ -1007,19 +1150,20 @@ end
 function M.invalidate_folders(paths)
   for _, path in ipairs(paths) do
     M.file_cache[path] = nil
+    if not app.fs.isDirectory(path) then
+      for cached in pairs(M.file_cache) do
+        if path_is_same_or_child(cached, path) then M.file_cache[cached] = nil end
+      end
+    end
   end
   M.search_index = {}
   M.search_index_root = nil
+  M.search_job = nil
 
-  if M.preview_mode == "preview" and M.has(M.preview_path) and app.fs.isFile(M.preview_path) then
-    M.load_preview(M.preview_path)
+  for path in pairs(M.selection) do
+    if not file_exists(path) then M.selection[path] = nil end
   end
-  if M.preview_mode == "ref"
-    and M.ref_viewer ~= nil
-    and M.has(M.ref_viewer.path)
-    and app.fs.isFile(M.ref_viewer.path) then
-    M.ref_viewer.reload(M.ref_viewer.path)
-  end
+  if M.selected and not file_exists(M.selected) then M.selected = nil end
   M.refresh()
 end
 
@@ -1063,6 +1207,9 @@ function M.create_file(folder_path, name, file_type)
   local exp = M.expanded_set()
   exp[folder_path] = true
   M.selected = target
+  M.selection = { [target] = true }
+  M.selection_anchor = target
+  M.path_draft = target
   if M.preview_mode == "preview" then M.load_preview(target) end
   reset_cached_tree()
   M.refresh()
@@ -1097,6 +1244,9 @@ function M.create_folder(folder_path, name)
   local exp = M.expanded_set()
   exp[folder_path] = true
   M.selected = target
+  M.selection = { [target] = true }
+  M.selection_anchor = target
+  M.path_draft = target
   M.clear_preview("Select a file to preview.")
   reset_cached_tree()
   M.refresh()
@@ -1144,6 +1294,13 @@ end
 function M.update_renamed_paths(old_path, new_path, is_folder)
   -- Rewrite state that references a renamed file or folder.
   M.selected = replace_path_prefix(M.selected, old_path, new_path)
+  local selection = {}
+  for path in pairs(M.selection) do selection[replace_path_prefix(path, old_path, new_path)] = true end
+  M.selection = selection
+  M.selection_anchor = replace_path_prefix(M.selection_anchor, old_path, new_path)
+  M.path_draft = replace_path_prefix(M.path_draft, old_path, new_path)
+  for _, row in ipairs(M.clipboard_items) do row.path = replace_path_prefix(row.path, old_path, new_path) end
+  M.clipboard_path = replace_path_prefix(M.clipboard_path, old_path, new_path)
   M.preview_path = replace_path_prefix(M.preview_path, old_path, new_path)
   if M.ref_viewer ~= nil then
     M.ref_viewer.path = replace_path_prefix(M.ref_viewer.path, old_path, new_path)
@@ -1173,6 +1330,13 @@ end
 function M.clear_deleted_paths(path)
   -- Remove state that points at a deleted file/folder tree.
   if path_is_same_or_child(M.selected, path) then M.selected = nil end
+  for selected in pairs(M.selection) do
+    if path_is_same_or_child(selected, path) then M.selection[selected] = nil end
+  end
+  if path_is_same_or_child(M.selection_anchor, path) then M.selection_anchor = nil end
+  for index = #M.clipboard_items, 1, -1 do
+    if path_is_same_or_child(M.clipboard_items[index].path, path) then table.remove(M.clipboard_items, index) end
+  end
   if path_is_same_or_child(M.preview_path, path) then M.clear_preview("Select a file to preview.") end
   if M.ref_viewer ~= nil and path_is_same_or_child(M.ref_viewer.path, path) then
     M.ref_viewer.reset()
@@ -1205,7 +1369,7 @@ function M.delete_folder(path)
       local ok, err = M.delete_folder(child)
       if not ok then return false, err end
     else
-      local ok, err = os.remove(child)
+      local ok, err = M.platform.remove(child)
       if not ok then return false, err end
     end
   end
@@ -1216,7 +1380,7 @@ function M.delete_folder(path)
     if not app.fs.isDirectory(path) then return true end
   end
 
-  local removed, remove_error = os.remove(path)
+  local removed, remove_error = M.platform.remove(path)
   if removed then return true end
   if not app.os.windows or M.platform == nil then return false, remove_error end
 
@@ -1234,7 +1398,7 @@ function M.delete_path(row)
   if row_is_folder(row) then
     ok, err = M.delete_folder(path)
   else
-    ok, err = os.remove(path)
+    ok, err = M.platform.remove(path)
   end
 
   if not ok then
@@ -1253,14 +1417,21 @@ function M.show_delete_dialog(row)
   -- Confirm destructive delete operations in a small modal dialog.
   local dialog = nil
   local item_type = row_is_folder(row) and "folder and all contents" or "file"
+  local rows = M.operation_rows(row)
+  if #rows > 1 then item_type = #rows .. " items and their contents" end
   dialog = Dialog{ title = "Delete" }
-  dialog:label{ id = "message", label = "", text = "Delete this " .. item_type .. "?" }
-  dialog:label{ id = "name", label = "", text = M.short_path(row.path) }
+  local question = #rows > 1 and "Delete these " or "Delete this "
+  dialog:label{ id = "message", label = "", text = question .. item_type .. "?" }
+  for index = 1, math.min(8, #rows) do dialog:label{ text = M.short_path(rows[index].path) } end
+  if #rows > 8 then dialog:label{ text = "... and " .. (#rows - 8) .. " more items" } end
   dialog:button{
     id = "delete",
     text = "Delete",
     onclick = function()
-      if M.delete_path(row) then dialog:close() end
+      dialog:close()
+      for _, selected in ipairs(rows) do
+        if not M.delete_path(selected) then break end
+      end
     end
   }
   dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
@@ -1286,7 +1457,7 @@ function M.copy_file(source, target)
     if not read_ok then
       input:close()
       output:close()
-      os.remove(target)
+      M.platform.remove(target)
       return false, data
     end
 
@@ -1296,7 +1467,7 @@ function M.copy_file(source, target)
     if wrote == nil then
       input:close()
       output:close()
-      os.remove(target)
+      M.platform.remove(target)
       return false, write_error or "could not write target file"
     end
   end
@@ -1305,12 +1476,12 @@ function M.copy_file(source, target)
 
   local closed, close_error = output:close()
   if closed == nil then
-    os.remove(target)
+    M.platform.remove(target)
     return false, close_error or "could not finish target file"
   end
 
   if app.fs.fileSize(source) ~= app.fs.fileSize(target) then
-    os.remove(target)
+    M.platform.remove(target)
     return false, "copied file size does not match source"
   end
 
@@ -1373,10 +1544,10 @@ function M.copy_file_transaction(source, target)
   local ok, err = M.copy_file(source, temporary)
   if not ok then return false, err end
 
-  ok, err = os.rename(temporary, target)
+  ok, err = M.platform.rename(temporary, target)
   if ok then return true end
 
-  os.remove(temporary)
+  M.platform.remove(temporary)
   return false, err
 end
 
@@ -1385,7 +1556,7 @@ function M.copy_folder_transaction(source, target)
   local ok, err = M.copy_folder(source, temporary)
   if not ok then return false, err end
 
-  ok, err = os.rename(temporary, target)
+  ok, err = M.platform.rename(temporary, target)
   if ok then return true end
 
   M.delete_folder(temporary)
@@ -1415,17 +1586,17 @@ end
 
 local function remove_path(path)
   if app.fs.isDirectory(path) then return M.delete_folder(path) end
-  return os.remove(path)
+  return M.platform.remove(path)
 end
 
 local function swap_staged_path(staged, target)
   local backup = temporary_copy_path(target, app.fs.isDirectory(target))
-  local ok, err = os.rename(target, backup)
+  local ok, err = M.platform.rename(target, backup)
   if not ok then return false, err end
 
-  ok, err = os.rename(staged, target)
+  ok, err = M.platform.rename(staged, target)
   if not ok then
-    os.rename(backup, target)
+    M.platform.rename(backup, target)
     return false, err
   end
 
@@ -1573,7 +1744,7 @@ function M.cut_path_to_folder(source, target, action, state)
   end
 
   if not file_exists(target_path) then
-    local ok = os.rename(source, target_path)
+    local ok = M.platform.rename(source, target_path)
     if ok then return true, target_path end
   end
 
@@ -1588,68 +1759,89 @@ function M.cut_path_to_folder(source, target, action, state)
 end
 
 function M.set_clipboard(row, action)
-  -- Store an internal cut/copy target for later Paste.
+  M.clipboard_items = M.operation_rows(row)
   M.clipboard_path = row.path
   M.clipboard_action = action
   M.clipboard_is_folder = row_is_folder(row)
 end
 
 function M.can_paste()
-  -- Paste is available only while the internal clipboard points at an existing item.
-  if not M.has(M.clipboard_path) then return false end
-  return app.fs.isFile(M.clipboard_path) or app.fs.isDirectory(M.clipboard_path)
+  for _, row in ipairs(M.clipboard_items) do
+    if file_exists(row.path) then return true end
+  end
+  return false
+end
+
+local function transfer_item(row, folder_path, copy, choices)
+  local source = row.path
+  local target = app.fs.joinPath(folder_path, M.row_name(source))
+  if not copy and path_is_same_or_child(source, target) and path_is_same_or_child(target, source) then
+    return true, source
+  end
+  if row.is_folder and path_is_same_or_child(folder_path, source) then
+    return false, "cannot transfer a folder inside itself"
+  end
+
+  local conflict
+  if file_exists(target) then
+    local kind = row.is_folder and app.fs.isDirectory(target) and "folder" or "file"
+    conflict = choices[kind]
+    if conflict == nil then
+      local apply_all
+      conflict, apply_all = M.ask_paste_conflict(source, target)
+      if apply_all then choices[kind] = conflict end
+    end
+    if conflict == nil then return false, "paste cancelled" end
+  end
+  if copy then return M.copy_path_to_folder(source, folder_path, conflict, choices.children) end
+  return M.cut_path_to_folder(source, folder_path, conflict, choices.children)
+end
+
+function M.transfer_items(rows, folder_path, copy)
+  -- Completed items survive a later cancel/error; remaining cut items stay on the clipboard.
+  local completed, pending = {}, {}
+  local choices = { children = {} }
+  for index, row in ipairs(rows) do
+    local source = row.path
+    local ok, result = transfer_item(row, folder_path, copy, choices)
+    if not ok then
+      for remaining = index, #rows do table.insert(pending, rows[remaining]) end
+      if result ~= "paste cancelled" then
+        app.alert("Could not transfer " .. M.row_name(source) .. ": " .. tostring(result))
+      end
+      break
+    end
+    table.insert(completed, result)
+    if not copy then M.update_renamed_paths(source, result, row.is_folder) end
+  end
+  if #completed > 0 then
+    M.selection = {}
+    for _, path in ipairs(completed) do M.selection[path] = true end
+    M.selected = completed[#completed]
+    M.selection_anchor = M.selected
+    M.path_draft = M.selected
+    M.sync_path_entry()
+    M.expanded_set()[folder_path] = true
+    reset_cached_tree()
+    M.save_browser_settings()
+    M.refresh()
+  end
+  return #pending == 0, pending
 end
 
 function M.paste_into(folder_path)
-  -- Paste the internal clipboard item into a folder destination.
   if not M.can_paste() then
     app.alert("Nothing to paste.")
     return false
   end
-
-  local source = M.clipboard_path
-  local action = M.clipboard_action
-  local target = app.fs.joinPath(folder_path, M.row_name(source))
-  local conflict = nil
-  local state = {}
-
-  if file_exists(target) then
-    conflict, state.apply_to_all = M.ask_paste_conflict(source, target)
-    if conflict == nil then return false end
+  local copy = M.clipboard_action ~= "cut"
+  local ok, pending = M.transfer_items(M.clipboard_items, folder_path, copy)
+  if not copy then
+    M.clipboard_items = pending
+    M.clipboard_path = pending[1] and pending[1].path
+    if #pending == 0 then M.clipboard_action = nil end
   end
-
-  local ok = nil
-  local result = nil
-
-  if action == "cut" then
-    ok, result = M.cut_path_to_folder(source, folder_path, conflict, state)
-  else
-    ok, result = M.copy_path_to_folder(source, folder_path, conflict, state)
-  end
-
-  if not ok then
-    app.alert("Could not paste: " .. tostring(result))
-    return false
-  end
-
-  local pasted_folder = M.clipboard_is_folder
-  if action == "cut" then
-    M.update_renamed_paths(source, result, M.clipboard_is_folder)
-    M.clipboard_path = nil
-    M.clipboard_action = nil
-    M.clipboard_is_folder = false
-  else
-    M.selected = result
-  end
-
-  if pasted_folder then M.clear_preview("Select a file to preview.") end
-
-  local exp = M.expanded_set()
-  exp[folder_path] = true
-  reset_cached_tree()
-  M.save_browser_settings()
-  M.refresh()
-  return true
+  return ok
 end
 
 function M.can_drop_path(source, folder_path)
@@ -1665,43 +1857,18 @@ function M.can_drop_path(source, folder_path)
   return true
 end
 
-function M.drop_path_into(source, folder_path, copy)
-  if not M.can_drop_path(source, folder_path) then return false end
-
-  local target = app.fs.joinPath(folder_path, M.row_name(source))
-  local conflict = nil
-  local state = {}
-
-  if file_exists(target) then
-    conflict, state.apply_to_all = M.ask_paste_conflict(source, target)
-    if conflict == nil then return false end
+function M.can_drop_items(rows, folder_path)
+  if #rows == 0 then return false end
+  for _, row in ipairs(rows) do
+    if not M.can_drop_path(row.path, folder_path) then return false end
   end
-
-  local source_is_folder = app.fs.isDirectory(source)
-  local ok, result
-  if copy then
-    ok, result = M.copy_path_to_folder(source, folder_path, conflict, state)
-  else
-    ok, result = M.cut_path_to_folder(source, folder_path, conflict, state)
-  end
-
-  if not ok then
-    app.alert("Could not drop item: " .. tostring(result))
-    return false
-  end
-
-  if copy then
-    M.selected = result
-  else
-    M.update_renamed_paths(source, result, source_is_folder)
-  end
-
-  local expanded = M.expanded_set()
-  expanded[folder_path] = true
-  reset_cached_tree()
-  M.save_browser_settings()
-  M.refresh()
   return true
+end
+
+function M.drop_path_into(source, folder_path, copy)
+  local rows = M.operation_rows({ path = source, is_folder = app.fs.isDirectory(source) })
+  if not M.can_drop_items(rows, folder_path) then return false end
+  return M.transfer_items(rows, folder_path, copy)
 end
 
 function M.clear_file_drag()
@@ -1734,15 +1901,15 @@ function M.rename_path(row, name)
 
   if case_only then
     local temporary = temporary_copy_path(old_path, row_is_folder(row))
-    local moved, move_error = os.rename(old_path, temporary)
+    local moved, move_error = M.platform.rename(old_path, temporary)
     if not moved then
       app.alert("Could not rename: " .. tostring(move_error))
       return false
     end
 
-    moved, move_error = os.rename(temporary, new_path)
+    moved, move_error = M.platform.rename(temporary, new_path)
     if not moved then
-      os.rename(temporary, old_path)
+      M.platform.rename(temporary, old_path)
       app.alert("Could not rename: " .. tostring(move_error))
       return false
     end
@@ -1762,7 +1929,7 @@ function M.rename_path(row, name)
     return false
   end
 
-  local ok, err = os.rename(old_path, new_path)
+  local ok, err = M.platform.rename(old_path, new_path)
   if not ok then
     app.alert("Could not rename: " .. tostring(err))
     return false
@@ -1781,17 +1948,19 @@ end
 function M.show_rename_dialog(row)
   -- Ask for the new display name for a file or folder row.
   local dialog = nil
+  local renamed = false
   dialog = Dialog{ title = "Rename" }
   dialog:entry{ id = "name", label = "Name", text = M.rename_dialog_name(row), focus = true }
   dialog:button{
     id = "rename",
     text = "Rename",
     onclick = function()
-      if M.rename_path(row, dialog.data.name) then dialog:close() end
+      if M.rename_path(row, dialog.data.name) then renamed = true; dialog:close() end
     end
   }
   dialog:button{ id = "cancel", text = "Cancel", onclick = function() dialog:close() end }
-  dialog:show{ wait = false }
+  dialog:show{ wait = true }
+  return renamed
 end
 
 function M.rename_dialog_name(row)
@@ -1813,10 +1982,13 @@ function M.nav_to(path, push)
   M.file_cache = {}
   M.search_index = {}
   M.search_index_root = nil
+  M.search_job = nil
   M.scroll = 0
   M.h_scroll = 0
   M.hovered_idx = nil
   M.selected = nil
+  M.selection = {}
+  M.selection_anchor = nil
   M.context_menu = nil
   M.all_folders_expanded = false
   M.save_browser_settings()
@@ -1834,6 +2006,8 @@ function M.open_path_draft()
     local parent = app.fs.filePath(path)
     if parent ~= M.root_path then M.nav_to(parent, true) end
     M.selected = path
+    M.selection = { [path] = true }
+    M.selection_anchor = path
     M.path_draft = path
     M.sync_path_entry()
     if M.preview_mode == "preview" then M.load_preview(path) end
@@ -1860,10 +2034,58 @@ function M.nav_up()
   if M.has(p) and p ~= M.root_path then M.nav_to(p, true) end
 end
 
-function M.nav_sprite()
-  -- Jump to the active sprite's folder when a sprite is open.
-  local s = app.activeSprite
-  if s and M.has(s.filename) then M.nav_to(app.fs.filePath(s.filename), true) end
+function M.reveal_active_sprite()
+  local sprite = app.activeSprite
+  if sprite == nil or not M.has(sprite.filename) or not app.fs.isFile(sprite.filename) then
+    app.alert("Save the active sprite before revealing it.")
+    return
+  end
+  local path = app.fs.normalizePath(sprite.filename)
+  if not path_is_same_or_child(path, M.root_path) then M.nav_to(app.fs.filePath(path), true) end
+  M.clear_filter_for_navigation()
+  M.filter_mode = "All"
+  M.modify{ id = "filter_mode", option = "All" }
+  local parent = app.fs.filePath(path)
+  while parent ~= M.root_path do
+    M.expanded_set()[parent] = true
+    local next_parent = app.fs.filePath(parent)
+    if next_parent == parent then break end
+    parent = next_parent
+  end
+  if M.is_ref_mode() then
+    M.preview_mode = "preview"
+    M.ref_viewer.reset()
+    M.update_preview_button()
+    M.update_mode_controls()
+  end
+  M.select_path({ path = path, is_folder = false })
+  M.refresh()
+  for index, row in ipairs(M.visible_rows) do
+    if row.path == path then M.scroll = (index - 1) * M.ROW_H; break end
+  end
+  M.h_scroll = 0
+  M.clamp_scroll()
+  M.dialog:repaint()
+end
+
+function M.switch_reference(direction)
+  local current = M.ref_viewer.path or M.selected
+  if current == nil then return false end
+  local files = {}
+  for _, row in ipairs(M.scan_folder(app.fs.filePath(current))) do
+    if not row.is_folder then table.insert(files, row) end
+  end
+  for index, row in ipairs(files) do
+    if row.path == current then
+      local next_row = files[index + direction]
+      if next_row == nil then return false end
+      M.select_path(next_row)
+      M.ref_viewer.load(next_row.path)
+      if M.dialog then M.dialog:repaint() end
+      return true
+    end
+  end
+  return false
 end
 
 function M.nav_root_selected()
@@ -1909,11 +2131,19 @@ function M.open_context_menu(row, x, y)
     return
   end
 
+  if not M.is_selected(row.path) then
+    M.selection = { [row.path] = true }
+    M.selection_anchor = row.path
+    M.selected = row.path
+    M.update_selection_status()
+  end
+  local multiple = #M.operation_rows(row, true) > 1
+
   table.insert(items, { label = "Open", action = "open" })
   table.insert(items, { label = "Cut", action = "cut" })
   table.insert(items, { label = "Copy", action = "copy" })
 
-  if row_is_folder(row) then
+  if row_is_folder(row) and not multiple then
     table.insert(items, { label = "New File", action = "new_file" })
     table.insert(items, { label = "New Folder", action = "new_folder" })
     if M.can_paste() then table.insert(items, { label = "Paste", action = "paste" }) end
@@ -1921,13 +2151,22 @@ function M.open_context_menu(row, x, y)
     local favorite_text = M.is_favorite(row.path) and "Remove Favorite" or "Add Favorite"
     table.insert(items, { label = favorite_text, action = "favorite" })
   end
+  if multiple then
+    for _, selected in ipairs(M.operation_rows(row, true)) do
+      if selected.is_folder then
+        table.insert(items, { label = "Add Favorites", action = "add_favorites" })
+        table.insert(items, { label = "Remove Favorites", action = "remove_favorites" })
+        break
+      end
+    end
+  end
 
   local color_items = {}
   for _, color in ipairs(M.COLOR_TAG_OPTIONS) do
     local label = color:sub(1, 1):upper() .. color:sub(2)
     table.insert(color_items, { label = label, action = "color_tag", color = color })
   end
-  if M.color_tags[row.path] ~= nil then
+  if multiple or M.color_tags[row.path] ~= nil then
     table.insert(color_items, { label = "Clear Color", action = "clear_color_tag" })
   end
   table.insert(items, { label = "Color Tag  >", submenu = { items = color_items } })
@@ -2029,6 +2268,7 @@ function M.run_context_action(item)
     return true
   end
   local row = menu.row
+  local rows = M.operation_rows(row, true)
   M.close_context_menu()
 
   if item.action == "clear_root" then
@@ -2038,7 +2278,10 @@ function M.run_context_action(item)
   elseif item.action == "new_folder" then
     M.show_new_folder_dialog(row.path)
   elseif item.action == "rename" then
-    M.show_rename_dialog(row)
+    -- Children are renamed before parents so the remaining dialog paths stay valid.
+    for index = #rows, 1, -1 do
+      if not M.show_rename_dialog(rows[index]) then break end
+    end
   elseif item.action == "delete" then
     M.show_delete_dialog(row)
   elseif item.action == "cut" then
@@ -2050,24 +2293,41 @@ function M.run_context_action(item)
   elseif item.action == "set_root" then
     M.set_pinned_root(row.path)
   elseif item.action == "open" then
-    if row.is_shortcut or row.is_folder then M.nav_to(row.path, true) else app.open(row.path) end
+    if #rows == 1 and row_is_folder(row) then
+      M.nav_to(row.path, true)
+    else
+      for _, selected in ipairs(rows) do
+        if selected.is_folder then M.expanded_set()[selected.path] = true else app.open(selected.path) end
+      end
+      M.refresh()
+    end
   elseif item.action == "copy_path" then
-    local target = row.is_root_info and M.pinned_root or row.path
+    local paths = {}
+    for _, selected in ipairs(rows) do table.insert(paths, selected.path) end
+    local target = row.is_root_info and M.pinned_root or table.concat(paths, "\n")
     local ok, err = M.platform.copy_path(target)
     if not ok then app.alert("Could not copy path: " .. tostring(err)) end
   elseif item.action == "reveal" then
-    local target = row.is_root_info and M.pinned_root or row.path
-    local ok, err = M.platform.reveal(target)
-    if not ok then app.alert("Could not open file manager: " .. tostring(err)) end
+    for _, selected in ipairs(rows) do
+      local target = row.is_root_info and M.pinned_root or selected.path
+      local ok, err = M.platform.reveal(target)
+      if not ok then app.alert("Could not open file manager: " .. tostring(err)); break end
+    end
   elseif item.action == "favorite" then
     if row.is_folder or row.is_shortcut then
       M.toggle_favorite(row.path)
       M.refresh()
     end
+  elseif item.action == "add_favorites" or item.action == "remove_favorites" then
+    local adding = item.action == "add_favorites"
+    for _, selected in ipairs(rows) do
+      if selected.is_folder and M.is_favorite(selected.path) ~= adding then M.toggle_favorite(selected.path) end
+    end
+    M.refresh()
   elseif item.action == "color_tag" then
-    M.set_color_tag(row.path, item.color)
+    for _, selected in ipairs(rows) do M.set_color_tag(selected.path, item.color) end
   elseif item.action == "clear_color_tag" then
-    M.set_color_tag(row.path, nil)
+    for _, selected in ipairs(rows) do M.set_color_tag(selected.path, nil) end
   end
 
   return true

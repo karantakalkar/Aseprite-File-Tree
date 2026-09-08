@@ -23,6 +23,12 @@ local debounce_timer = nil
 local search_timer = nil
 local path_timer = nil
 local drag_expand_timer = nil
+local pending_click = nil
+local selection_gesture = false
+
+local function additive_key(ev)
+  return ev.ctrlKey or (app.os.macos and ev.metaKey)
+end
 
 local function stop_search_timers()
   if debounce_timer ~= nil and debounce_timer.isRunning then debounce_timer:stop() end
@@ -144,11 +150,6 @@ local function on_h_sb_click(x, y)
   return true
 end
 
-local function select_row(row)
-  -- Single-click selection updates the shared Path field and active preview.
-  core.select_path(row)
-end
-
 local function begin_file_drag(row, ev)
   if not is_left_button_down(ev) then return end
   if row.is_section or row.is_divider or row.is_root_info or row.is_shortcut then return end
@@ -197,7 +198,7 @@ local function update_file_drag(ev)
     core.drag_started = true
   end
 
-  core.drag_copy = ev.ctrlKey
+  core.drag_copy = app.os.macos and ev.altKey or ev.ctrlKey
 
   if ev.y < core.ROW_H * 2 then
     core.scroll = core.scroll - core.ROW_H
@@ -215,7 +216,8 @@ local function update_file_drag(ev)
     target = row.path
   end
 
-  if not core.can_drop_path(core.drag_source, target) then
+  local rows = core.operation_rows(core.drag_row)
+  if not core.can_drop_items(rows, target) then
     target = nil
     idx = nil
   end
@@ -280,6 +282,11 @@ local function on_mousedown(ev)
       core.open_context_menu(nil, ev.x, ev.y)
       return
     end
+    if row == nil then
+      core.selection = {}
+      core.selected = nil
+      core.update_selection_status()
+    end
     core.close_context_menu()
     core.dialog:repaint()
     return
@@ -292,8 +299,14 @@ local function on_mousedown(ev)
   end
 
   -- Left-click selection is the only click path that refreshes preview content.
-  select_row(row)
-  begin_file_drag(row, ev)
+  selection_gesture = additive_key(ev) or ev.shiftKey
+  pending_click = nil
+  if not selection_gesture and core.is_selected(row.path) then
+    pending_click = row
+  else
+    core.select_row(row, additive_key(ev), ev.shiftKey)
+  end
+  if core.is_selected(row.path) then begin_file_drag(row, ev) end
 
   core.close_context_menu()
 
@@ -309,6 +322,7 @@ local function on_dblclick(ev)
   -- Ignore clicks outside canvas bounds.
   if ev.x < 0 or ev.y < 0 or ev.x >= core.canvas_w or ev.y >= core.canvas_h then return end
   if core.is_ref_mode() then return end
+  if additive_key(ev) or ev.shiftKey then return end
   if in_preview_pane(ev.x) then return end
   if in_v_scrollbar(ev.x) or in_h_scrollbar(ev.y) then return end
   local row = core.row_at_y(ev.y)
@@ -430,12 +444,17 @@ local function on_mouseup()
   local should_toggle = not core.drag_started
     and clicked_row ~= nil
     and clicked_row.is_folder
+    and not selection_gesture
+  local clicked = pending_click
+  local was_dragging = core.drag_started
+  pending_click = nil
 
   core.sb_dragging = false
   core.hsb_dragging = false
   core.preview_dragging = false
   clear_file_drag()
   core.set_resize_cursor(false)
+  if clicked and not was_dragging then core.select_row(clicked, false, false) end
 
   if should_drop then
     core.drop_path_into(source, target, copy)
@@ -450,6 +469,7 @@ local function on_mouseup()
 end
 
 local function on_mouseleave()
+  pending_click = nil
   if core.is_ref_mode() then
     ref_viewer.mouseleave()
     update_ref_cursor()
@@ -488,6 +508,43 @@ local function on_wheel(ev)
   core.dialog:repaint()
 end
 
+local function on_keydown(ev)
+  if core.is_ref_mode() then return end
+  local row = core.selected and { path = core.selected, is_folder = app.fs.isDirectory(core.selected) }
+  if row and not core.is_selected(row.path) then
+    local path = next(core.selection)
+    row = path and { path = path, is_folder = app.fs.isDirectory(path) }
+  end
+  local action
+  if additive_key(ev) then
+    if ev.code == "KeyA" then core.select_all(); ev:stopPropagation(); return end
+    if ev.code == "KeyC" then action = "copy" end
+    if ev.code == "KeyX" then action = "cut" end
+    if ev.code == "KeyV" then
+      local target = row and row.is_folder and row.path or core.root_path
+      core.paste_into(target)
+      ev:stopPropagation()
+      return
+    end
+  elseif ev.code == "Delete" then action = "delete"
+  elseif ev.code == "F2" then action = "rename"
+  elseif ev.code == "Enter" then action = "open"
+  elseif ev.code == "Escape" then
+    core.selection = {}
+    core.selected = nil
+    core.update_selection_status()
+    core.close_context_menu()
+    core.dialog:repaint()
+    ev:stopPropagation()
+    return
+  end
+  if action and row then
+    core.context_menu = { row = row }
+    core.run_context_action({ action = action })
+    ev:stopPropagation()
+  end
+end
+
 local function create_dialog()
   -- Build the floating browser dialog and wire all controls.
   core.init_root()
@@ -514,6 +571,7 @@ local function create_dialog()
     ontick = function()
       debounce_timer:stop()
       core.show_searching()
+      core.apply_pending_filter()
       search_timer:start()
     end
   }
@@ -521,10 +579,11 @@ local function create_dialog()
   search_timer = Timer{
     interval = 0.05,
     ontick = function()
-      search_timer:stop()
-      core.apply_pending_filter()
+      core.refresh()
+      if core.search_job == nil then search_timer:stop() end
     end
   }
+  core.schedule_search = function() search_timer:start() end
 
   drag_expand_timer = Timer{
     interval = 0.5,
@@ -546,7 +605,7 @@ local function create_dialog()
   }
 
   path_timer = Timer{
-    interval = 1.5,
+    interval = 0.25,
     ontick = function()
       path_timer:stop()
       core.open_path_draft()
@@ -592,7 +651,8 @@ local function create_dialog()
   core.dialog:newrow()
   core.dialog:button{ id = "b_back", text = "< Back", onclick = core.nav_back }
   core.dialog:button{ id = "b_up", text = "^ Up", onclick = core.nav_up }
-  core.dialog:button{ id = "b_sprite", text = "Sprite", onclick = core.nav_sprite }
+  core.dialog:button{ id = "b_reveal_sprite", text = "Reveal Sprite", onclick = core.reveal_active_sprite }
+  core.dialog:newrow()
   core.dialog:button{ id = "b_root", text = "Root", enabled = core.has(core.pinned_root), onclick = core.nav_root_selected }
   core.dialog:button{ id = "b_expand_all", text = "Expand All", onclick = core.toggle_all_folders }
   core.dialog:button{
@@ -605,6 +665,11 @@ local function create_dialog()
   }
 
   core.dialog:separator{}
+  core.dialog:label{ id = "selection_status", text = "" }
+  core.dialog:newrow()
+  core.dialog:button{ id = "b_prev_ref", text = "< Prev", visible = false, onclick = function() core.switch_reference(-1) end }
+  core.dialog:button{ id = "b_next_ref", text = "Next >", visible = false, onclick = function() core.switch_reference(1) end }
+  core.dialog:newrow()
 
   core.dialog:canvas{
     id = "tree",
@@ -619,7 +684,8 @@ local function create_dialog()
     onmousemove = on_mousemove,
     onmouseup = on_mouseup,
     onmouseleave = on_mouseleave,
-    onwheel = on_wheel
+    onwheel = on_wheel,
+    onkeydown = on_keydown
   }
 
   local saved = core.dialog_bounds

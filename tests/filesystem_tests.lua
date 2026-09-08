@@ -321,7 +321,7 @@ end
 local function test_color_submenu()
   reset()
   fake.add_file("/workspace/item.png", "item")
-  core.dialog = { repaint = function() end }
+  core.dialog = { repaint = function() end, modify = function() end }
 
   core.open_context_menu({
     path = "/workspace/item.png",
@@ -366,19 +366,19 @@ local function test_windows_reveal_uses_shell_launch()
 
   expect(platform.reveal("/workspace"), "folder reveal failed")
   expect(
-    fake.executed_commands[1] == 'start "" explorer.exe "/workspace"',
+    fake.executed_commands[1] == platform.windows_command([[Start-Process explorer.exe -ArgumentList '"/workspace"']]),
     "folder reveal did not use an asynchronous Explorer launch"
   )
 
   expect(platform.reveal("/workspace/item.png"), "file reveal failed")
   expect(
-    fake.executed_commands[2] == 'start "" explorer.exe /select,"/workspace/item.png"',
+    fake.executed_commands[2] == platform.windows_command([[Start-Process explorer.exe -ArgumentList '/select,"/workspace/item.png"']]),
     "file reveal did not use an asynchronous Explorer launch"
   )
 
   expect(platform.remove_empty_directory("/workspace/empty"), "native directory removal failed")
   expect(
-    fake.executed_commands[3] == 'attrib -R "/workspace/empty" >nul 2>&1 & rmdir "/workspace/empty"',
+    fake.executed_commands[3]:find("-EncodedCommand", 1, true) ~= nil,
     "native directory removal did not clear read-only before rmdir"
   )
 end
@@ -626,6 +626,9 @@ test_ref_view_navigation()
 test_ref_view_reload_preserves_camera()
 test_ref_view_crop()
 test_ref_view_color_sampling()
+
+assert(loadfile(app.fs.joinPath(tests_path, "browser_tests.lua")))(repo_path)
+assert(loadfile(app.fs.joinPath(tests_path, "input_tests.lua")))(repo_path)
 
 if app.params and app.params.result then
   local result_file = assert(io.open(app.params.result, "wb"))

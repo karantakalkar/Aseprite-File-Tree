@@ -197,6 +197,7 @@ function fake_io.open(path, mode)
     if content == nil then return nil, "open failed" end
     local position = 1
     return {
+      seek = function(_, _, offset) position = offset + 1; return offset end,
       read = function(_, amount)
         if position > #content then return nil end
         if amount == "*a" then

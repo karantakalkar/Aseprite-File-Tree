@@ -91,11 +91,11 @@ foreach ($text in @(
     }
 }
 
-if (-not $platform.Contains('start "" explorer.exe')) {
+if (-not $platform.Contains('Start-Process explorer.exe')) {
     throw "Windows reveal must launch Explorer asynchronously"
 }
 
-foreach ($text in @("remove_empty_directory", "attrib -R", "rmdir")) {
+foreach ($text in @("remove_empty_directory", "ReadOnly", "Remove-Item -LiteralPath", "-EncodedCommand")) {
     if (-not $allText.Contains($text)) {
         throw "Windows directory removal fallback is missing: $text"
     }
@@ -139,7 +139,7 @@ foreach ($text in @(
     "makeDirectory",
     "rename_path",
     "rename_dialog_name",
-    "os.rename",
+    "platform.rename",
     "Sprite(16, 16)",
     "preview_mode",
     "preview_w",
@@ -155,7 +155,7 @@ foreach ($text in @(
     "Delete",
     "delete_path",
     "delete_folder",
-    "return os.remove(path)",
+    "return M.platform.remove(path)",
     "copy_file",
     "copy_folder",
     "copy_name_path",
@@ -164,7 +164,7 @@ foreach ($text in @(
     "Cut",
     "Copy",
     "Paste",
-    "os.remove"
+    "platform.remove"
 )) {
     if (-not $core.Contains($text) -and -not $main.Contains($text)) {
         throw "Core browser feature is missing: $text"
@@ -283,8 +283,8 @@ foreach ($text in @(
 }
 
 # Keep release version fixed unless the package metadata is intentionally bumped.
-if ($package.version -ne "0.3.0") {
-    throw "package.json version must be 0.3.0"
+if ($package.version -ne "0.4.0") {
+    throw "package.json version must be 0.4.0"
 }
 
 # Verify the built extension exists before inspecting archive contents.
